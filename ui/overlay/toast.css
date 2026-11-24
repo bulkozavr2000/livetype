@@ -1,0 +1,149 @@
+/* Toast notice. Values from sonner's stylesheet as configured by Type's <Toaster richColors>:
+   --normal-bg: var(--popover), --normal-border: var(--border), --border-radius: var(--radius). */
+:root {
+  --width: 356px;
+  --border-radius: 0.625rem;
+  --normal-bg: #fff;
+  --normal-border: color-mix(in oklab, #171717 12%, transparent);
+  --normal-text: #0a0a0a;
+  --success-bg: hsl(143, 85%, 96%);
+  --success-border: hsl(145, 92%, 87%);
+  --success-text: hsl(140, 100%, 27%);
+  --info-bg: hsl(208, 100%, 97%);
+  --info-border: hsl(221, 91%, 93%);
+  --info-text: hsl(210, 92%, 45%);
+  --warning-bg: hsl(49, 100%, 97%);
+  --warning-border: hsl(49, 91%, 84%);
+  --warning-text: hsl(31, 92%, 45%);
+  --error-bg: hsl(359, 100%, 97%);
+  --error-border: hsl(359, 100%, 94%);
+  --error-text: hsl(360, 100%, 45%);
+  color-scheme: light;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.toaster {
+  box-sizing: border-box;
+  list-style: none;
+  margin: 0;
+  /* room for the shadow; the window is sized to toast + 36 px */
+  padding: 18px 0;
+  display: flex;
+  justify-content: center;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    "Noto Sans", sans-serif;
+}
+
+/* [data-sonner-toast][data-styled=true] */
+.toast {
+  box-sizing: border-box;
+  width: var(--width);
+  padding: 16px;
+  background: var(--normal-bg);
+  border: 1px solid var(--normal-border);
+  color: var(--normal-text);
+  border-radius: var(--border-radius);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-wrap: anywhere;
+  /* bottom toaster: enters from below, leaves downwards */
+  transform: translateY(100%);
+  opacity: 0;
+  transition:
+    transform 0.4s,
+    opacity 0.4s;
+}
+.toast[hidden] {
+  display: none;
+}
+.toast[data-mounted="true"] {
+  transform: translateY(0);
+  opacity: 1;
+}
+.toast[data-removed="true"] {
+  transform: translateY(100%);
+  opacity: 0;
+}
+
+/* rich colors */
+.toast[data-type="success"] {
+  background: var(--success-bg);
+  border-color: var(--success-border);
+  color: var(--success-text);
+}
+.toast[data-type="info"] {
+  background: var(--info-bg);
+  border-color: var(--info-border);
+  color: var(--info-text);
+}
+.toast[data-type="warning"] {
+  background: var(--warning-bg);
+  border-color: var(--warning-border);
+  color: var(--warning-text);
+}
+.toast[data-type="error"] {
+  background: var(--error-bg);
+  border-color: var(--error-border);
+  color: var(--error-text);
+}
+
+/* [data-icon] */
+.toast-icon {
+  display: flex;
+  height: 16px;
+  width: 16px;
+  position: relative;
+  justify-content: flex-start;
+  align-items: center;
+  flex-shrink: 0;
+  margin-left: -3px;
+  margin-right: 4px;
+}
+.toast-icon svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  margin-left: -1px;
+}
+
+/* [data-content] */
+.toast-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.toast-title {
+  font-weight: 500;
+  line-height: 1.5;
+  color: inherit;
+}
+.toast-description {
+  font-weight: 400;
+  line-height: 1.4;
+  color: inherit;
+}
+.toast-title:empty,
+.toast-description:empty {
+  display: none;
+}
+
+@media (prefers-reduced-motion) {
+  .toast {
+    transition: none !important;
+  }
+}

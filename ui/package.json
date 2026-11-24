@@ -1,0 +1,41 @@
+{
+  "name": "livetype",
+  "productName": "LiveType",
+  "version": "0.2.0",
+  "description": "LiveType — offline voice typing for Windows. Desktop shell (Electron); look and behaviour ported from Type (GigaType2 / OpenWhispr, MIT).",
+  "main": "main.js",
+  "private": true,
+  "author": "LiveType contributors",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "mock": "electron . --mock",
+    "dist": "electron-builder --win nsis --publish never"
+  },
+  "devDependencies": {
+    "electron": "45.4.1",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.livetype.app",
+    "productName": "LiveType",
+    "copyright": "LiveType contributors · MIT",
+    "files": ["**/*", "!dev/**", "!start.cmd"],
+    "extraResources": [
+      { "from": "../build/engine/livetype-engine", "to": "engine" },
+      { "from": "../build/licenses", "to": "licenses" }
+    ],
+    "directories": { "output": "../build/release" },
+    "win": { "target": "nsis", "icon": "assets/icons/livetype.ico" },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "LiveType",
+      "runAfterFinish": true,
+      "artifactName": "LiveType-Setup-${version}.exe"
+    }
+  }
+}

@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>LiveType Edge test</title>
+<style>
+  html, body { margin: 0; height: 100%; }
+  textarea { width: 100%; height: 100%; box-sizing: border-box; padding: 12px; border: 0; outline: 0;
+             font: 16px "Segoe UI", sans-serif; resize: none; }
+</style>
+</head>
+<body>
+<textarea id="t" autofocus></textarea>
+<script>
+  const p = new URLSearchParams(location.search);
+  const t = document.getElementById('t');
+  t.value = p.get('text') || '';
+  const c = parseInt(p.get('caret') || '-1', 10);
+  const pos = c >= 0 ? c : t.value.length;
+  t.focus();
+  t.setSelectionRange(pos, pos);
+</script>
+</body>
+</html>

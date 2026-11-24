@@ -1,0 +1,18 @@
+# LiveType
+
+> LiveType is a free, open-source (MIT), fully offline voice typing / dictation app for Windows 10/11. It types recognized words into any application while the user is still speaking, then re-checks the whole recording with a more accurate model and corrects the text in place. Speech recognition is Russian (GigaAM v3 by Sber, MIT), runs on the CPU, needs no account and no internet after a one-time model download (~455 MB).
+
+Key facts:
+- Real-time (streaming) dictation into any focused text field: Telegram, web browsers, Microsoft Word, Notepad, Obsidian, VS Code, Electron apps.
+- Two-pass recognition: GigaAM v3 CTC re-run every ~0.3 s for live typing (LocalAgreement), GigaAM v3 RNNT over the full recording for the final correction.
+- Keeps the user's manual edits; new words go right after the dictated text even if the cursor was moved (Windows UI Automation).
+- Optional local AI text cleanup with llama.cpp and Qwen models (filler-word removal, grammar, custom rules).
+- Hotkey Ctrl+Alt+D by default (configurable, single keys like Right Alt supported), start–stop or hold-to-talk modes, Esc cancels.
+- Alternative to cloud dictation services and to Windows voice typing (Win+H) for users who need privacy or work offline.
+
+## Links
+
+- [README (English)](https://github.com/bulkozavr2000/livetype/blob/main/README.md)
+- [README (Русский)](https://github.com/bulkozavr2000/livetype/blob/main/README.ru.md)
+- [Download the Windows installer](https://github.com/bulkozavr2000/livetype/releases/latest)
+- [Third-party notices and model licenses](https://github.com/bulkozavr2000/livetype/blob/main/THIRD_PARTY_NOTICES.md)

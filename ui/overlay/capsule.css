@@ -1,0 +1,42 @@
+/* Dictation capsule window (168x119, transparent). Rules copied from Type's index-DRt94f5w.css. */
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: 0 0;
+}
+
+/* Type: `dictation-window flex h-screen w-screen items-center justify-center bg-transparent` */
+.dictation-window {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+  align-items: center;
+  justify-content: center;
+  background-color: transparent;
+}
+
+.golos-dictation-capsule {
+  pointer-events: none;
+  isolation: isolate;
+  width: 100%;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+}
+
+.golos-capsule-canvas {
+  background: 0 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  position: absolute;
+  inset: 0;
+}
+
+.golos-dictation-capsule[data-renderer-unavailable="true"] {
+  visibility: hidden;
+}

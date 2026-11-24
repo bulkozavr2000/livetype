@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="ru" data-platform="win32">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:"
+    />
+    <title>LiveType</title>
+    <link rel="stylesheet" href="../assets/fonts/fonts.css" />
+    <link rel="stylesheet" href="panel.css" />
+  </head>
+  <body class="apple">
+    <div class="appshots-settings-window" id="root" data-custom-window-controls="true" data-view="main">
+      <div class="window-controls appshots-window-no-drag">
+        <button class="wc-btn" id="wc-min" type="button" title="Свернуть" aria-label="Свернуть">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14" /></svg>
+        </button>
+        <button class="wc-btn wc-close" id="wc-close" type="button" title="Закрыть" aria-label="Закрыть">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
+        </button>
+      </div>
+
+      <main class="appshots-window-content">
+        <div class="appshots-settings-scroll" id="scroll">
+          <!-- main view -->
+          <div class="view" id="view-main">
+            <div class="page">
+              <div class="appshots-settings-drag-header">
+                <div class="logo-header">
+                  <div class="logo" aria-hidden="true">
+                    <img src="../assets/icons/logo.svg" width="88" height="88" alt="" draggable="false" />
+                  </div>
+                </div>
+                <div class="start-view" role="status" aria-live="polite" aria-atomic="true">
+                  <div class="headline-title" id="headline-title">Подготавливаем модель</div>
+                  <div class="headline-description" id="headline-desc"></div>
+                </div>
+              </div>
+
+              <div class="settings">
+                <section class="list">
+                  <!-- dictation -->
+                  <section class="item" aria-label="Диктовка">
+                    <div class="container">
+                      <div class="cell" id="row-hotkey" role="button" tabindex="0">
+                        <div class="cell-body"><span class="t-body">Хоткей</span></div>
+                        <div class="cell-end">
+                          <div class="hotkey-shell"><span class="picker" id="hotkey-label">—</span></div>
+                        </div>
+                      </div>
+                      <div class="cell cell-static">
+                        <div class="cell-body"><span class="t-body">Способ диктовки</span></div>
+                        <div class="cell-end">
+                          <div class="select-wrap appshots-window-no-drag">
+                            <span class="dropdown" id="mode-label">Старт-стоп</span>
+                            <select class="native-select" id="mode-select" aria-label="Способ диктовки">
+                              <option value="hold">Удерживать хоткей</option>
+                              <option value="toggle">Старт-стоп</option>
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+                      <div class="cell cell-static">
+                        <div class="cell-body"><span class="t-body">Микрофон</span></div>
+                        <div class="cell-end">
+                          <div class="select-wrap appshots-window-no-drag">
+                            <span class="dropdown"><span class="select-label" id="mic-label">Системный</span></span>
+                            <select class="native-select" id="mic-select" aria-label="Микрофон"></select>
+                          </div>
+                        </div>
+                      </div>
+                      <div class="cell" id="row-history" role="button" tabindex="0" aria-label="Открыть историю диктовок">
+                        <div class="cell-body"><span class="t-body">История диктовок</span></div>
+                        <div class="cell-end">
+                          <svg class="end-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+
+                  <!-- live dictation (LiveType) -->
+                  <section class="item" aria-label="Живая диктовка">
+                    <div class="container">
+                      <div class="cell" role="switch" tabindex="0" data-setting="live_typing" aria-label="Печатать во время речи">
+                        <div class="cell-body"><span class="t-body">Печатать во время речи</span></div>
+                        <div class="cell-end"><span class="switch"></span></div>
+                      </div>
+                      <div class="cell" role="switch" tabindex="0" data-setting="final_check" aria-label="Перепроверять в конце">
+                        <div class="cell-body"><span class="t-body">Перепроверять в конце</span></div>
+                        <div class="cell-end"><span class="switch"></span></div>
+                      </div>
+                    </div>
+                  </section>
+
+                  <!-- text processing -->
+                  <section class="item" aria-label="Обработка текста">
+                    <div class="container">
+                      <div class="cell" role="switch" tabindex="0" data-setting="text_processing" aria-label="Обрабатывать распознанный текст">
+                        <div class="cell-body"><span class="t-body">Обрабатывать текст</span></div>
+                        <div class="cell-end"><span class="switch"></span></div>
+                      </div>
+                      <div class="cell cell-static" id="row-model">
+                        <div class="cell-body"><span class="t-body">Модель</span></div>
+                        <div class="cell-end">
+                          <div class="select-wrap appshots-window-no-drag">
+                            <span class="dropdown" id="model-label">Выбрать модель</span>
+                            <select class="native-select" id="model-select" aria-label="Модель обработки"></select>
+                          </div>
+                        </div>
+                      </div>
+                      <div class="chips" id="chips" role="group" aria-label="Пожелания к обработке текста"></div>
+                    </div>
+                  </section>
+
+                  <!-- appearance and sounds (collapsible stack) -->
+                  <section class="stack" id="stack" data-expanded="false" aria-label="Внешний вид и звуки">
+                    <div class="stack-peek" aria-hidden="true"></div>
+                    <div class="stack-card">
+                      <div class="cell" id="row-appearance" role="button" tabindex="0" aria-expanded="false">
+                        <div class="cell-body"><span class="t-body">Внешний вид и звуки</span></div>
+                        <div class="cell-end">
+                          <svg class="end-icon chevron-down" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+                        </div>
+                      </div>
+                      <div class="stack-body" id="stack-body">
+                        <div class="cell" role="switch" tabindex="0" data-setting="show_capsule" aria-label="Показывать капсулу">
+                          <div class="cell-body"><span class="t-body">Показывать капсулу</span></div>
+                          <div class="cell-end"><span class="switch"></span></div>
+                        </div>
+                        <div class="cell" role="switch" tabindex="0" data-setting="sounds" aria-label="Звуки диктовки">
+                          <div class="cell-body"><span class="t-body">Звуки диктовки</span></div>
+                          <div class="cell-end"><span class="switch"></span></div>
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+                </section>
+              </div>
+
+              <div class="build" id="build">BUILD 0.2</div>
+            </div>
+          </div>
+
+          <!-- dictation history -->
+          <div class="view" id="view-history" hidden>
+            <div class="page">
+              <div class="history-head">
+                <button class="back" id="history-back" type="button" aria-label="Назад">
+                  <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
+                  <span>Назад</span>
+                </button>
+              </div>
+              <div class="history-title">История диктовок</div>
+              <div class="history-hint">Нажмите на запись, чтобы скопировать текст</div>
+              <section class="list">
+                <section class="item">
+                  <div class="container" id="history-list"></div>
+                </section>
+              </section>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <div class="appshots-settings-caption-drag-region" id="drag-region" aria-hidden="true"></div>
+
+      <!-- custom rule dialog (Type: «Добавить правило») -->
+      <div class="dialog-overlay" id="dialog" hidden>
+        <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
+          <div class="dialog-title" id="dialog-title">Добавить правило</div>
+          <form id="dialog-form" autocomplete="off">
+            <div class="dialog-field">
+              <input id="dialog-input" type="text" maxlength="40" spellcheck="false" aria-label="Пожелание к обработке" placeholder="Менять GitHub на гитхаб" />
+            </div>
+            <p class="dialog-error" id="dialog-error" role="alert" hidden></p>
+            <div class="dialog-actions">
+              <button class="pill pill-secondary" id="dialog-close" type="button">Закрыть</button>
+              <button class="pill pill-filled" id="dialog-submit" type="submit">Добавить</button>
+              <button class="pill pill-gray" id="dialog-delete" type="button" hidden>Удалить</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+    <script src="panel.js"></script>
+  </body>
+</html>

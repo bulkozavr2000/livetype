@@ -1,0 +1,9 @@
+Inter font files in this folder (inter-*-wght-normal.woff2)
+
+Copyright (c) 2016 The Inter Project Authors (https://github.com/rsms/inter)
+
+This Font Software is licensed under the SIL Open Font License, Version 1.1.
+The license text is available at https://openfontlicense.org (also in the Inter repository, LICENSE.txt).
+
+The files are the unmodified subsets distributed by Fontsource (@fontsource-variable/inter), taken from the
+Type app's bundle. They are used here unchanged; the font is not sold by itself.

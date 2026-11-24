@@ -1,0 +1,20 @@
+# build output and dependencies
+build/
+dist/
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# test output (screenshots of the desktop, logs) and synthesized test audio
+tests/out/
+tests/data/*.wav
+
+# local, personal or machine-specific files
+Запустить LiveType.cmd
+Исследование рынка.md
+pyrightconfig.json
+.impeccable/
+*.log
+Статья для Хабра.md

@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'"
+    />
+    <title>LiveType — превью</title>
+    <link rel="stylesheet" href="../assets/fonts/fonts.css" />
+    <link rel="stylesheet" href="preview.css" />
+  </head>
+  <body>
+    <div class="meeting-notification-window">
+      <div class="card" id="card" data-state="live" hidden>
+        <div class="head">
+          <div class="head-left">
+            <span class="dot" id="dot"></span>
+            <div class="bars" id="bars" hidden><span></span><span></span><span></span></div>
+            <span class="label" id="label">Слушаю...</span>
+          </div>
+        </div>
+        <div class="text-wrap">
+          <div class="fade-top" id="fade" hidden></div>
+          <div class="preview-text-scroll" id="scroll"><p class="text" id="text"></p></div>
+        </div>
+      </div>
+    </div>
+    <script src="preview.js"></script>
+  </body>
+</html>

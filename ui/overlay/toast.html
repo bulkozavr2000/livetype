@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
+    />
+    <title>LiveType — уведомление</title>
+    <link rel="stylesheet" href="toast.css" />
+  </head>
+  <body>
+    <ol class="toaster" data-sonner-theme="light">
+      <li class="toast" id="toast" data-type="info" data-mounted="false" hidden>
+        <div class="toast-icon" id="icon" aria-hidden="true"></div>
+        <div class="toast-content">
+          <div class="toast-title" id="title"></div>
+          <div class="toast-description" id="body"></div>
+        </div>
+      </li>
+    </ol>
+    <script src="toast.js"></script>
+  </body>
+</html>

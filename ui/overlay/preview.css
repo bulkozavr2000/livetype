@@ -1,0 +1,192 @@
+/* Live preview bubble. Mirrors Type's transcription preview component (`kn`, Tailwind classes noted). */
+:root {
+  --card: #fff;
+  --foreground: #171717;
+  --muted-foreground: #737373;
+  --border: color-mix(in oklab, #171717 12%, transparent);
+  --primary: #59e075;
+  --accent: #e5e5e5;
+  --background: #fafafa;
+  --radius: 0.625rem;
+  color-scheme: light;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  font-family: "Inter Variable", ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Type: meeting-notification-window h-full w-full bg-transparent p-2. The card sits where Type puts it;
+   the extra transparent room (windows.js PREVIEW_PAD) keeps its shadow from being clipped. */
+.meeting-notification-window {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  padding: 16px 24px 32px;
+  background: transparent;
+}
+
+/* relative overflow-hidden rounded-xl border bg-card/92 p-3 backdrop-blur-xl shadow-[0_8px_24px_rgba(0,0,0,0.14)] */
+.card {
+  position: relative;
+  overflow: hidden;
+  box-sizing: border-box;
+  border-radius: calc(var(--radius) + 4px);
+  border: 1px solid color-mix(in oklab, var(--border) 40%, transparent);
+  background-color: color-mix(in oklab, var(--card) 92%, transparent);
+  padding: 12px;
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+}
+.card[hidden] {
+  display: none;
+}
+/* cleanup: border-accent/22 */
+.card[data-state="cleanup"] {
+  border-color: color-mix(in oklab, var(--accent) 22%, transparent);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.head-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* block h-1.5 w-1.5 shrink-0 rounded-full animate-pulse bg-primary/70 */
+.dot {
+  display: block;
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  background-color: color-mix(in oklab, var(--primary) 70%, transparent);
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+.dot[hidden] {
+  display: none;
+}
+
+/* flex items-end gap-[2px] shrink-0 h-3.5 ; spans w-[2px] rounded-full bg-accent/60 */
+.bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  flex-shrink: 0;
+  height: 14px;
+}
+.bars[hidden] {
+  display: none;
+}
+.bars span {
+  width: 2px;
+  border-radius: 9999px;
+  background-color: color-mix(in oklab, var(--accent) 60%, transparent);
+  animation: preview-bars 0.8s ease-in-out infinite;
+}
+.bars span:nth-child(1) {
+  height: 5px;
+  animation-delay: 0s;
+}
+.bars span:nth-child(2) {
+  height: 9px;
+  animation-delay: 0.1s;
+}
+.bars span:nth-child(3) {
+  height: 7px;
+  animation-delay: 0.2s;
+}
+
+/* text-[12px] font-medium tracking-tight text-muted-foreground/70 truncate */
+.label {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: -0.025em;
+  color: color-mix(in oklab, var(--muted-foreground) 70%, transparent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* relative mt-2 */
+.text-wrap {
+  position: relative;
+  margin-top: 8px;
+}
+/* pointer-events-none absolute inset-x-0 top-0 z-10 h-5 rounded-t-lg bg-gradient-to-b from-background/60 to-transparent */
+.fade-top {
+  pointer-events: none;
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  z-index: 10;
+  height: 20px;
+  border-radius: var(--radius) var(--radius) 0 0;
+  background-image: linear-gradient(to bottom, color-mix(in oklab, var(--background) 60%, transparent), transparent);
+}
+.fade-top[hidden] {
+  display: none;
+}
+
+/* preview-text-scroll rounded-lg border px-2.5 py-2 max-h-[220px] overflow-y-auto border-border/25 bg-background/30 */
+.preview-text-scroll {
+  border-radius: var(--radius);
+  border: 1px solid color-mix(in oklab, var(--border) 25%, transparent);
+  background-color: color-mix(in oklab, var(--background) 30%, transparent);
+  padding: 8px 10px;
+  max-height: 220px;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.preview-text-scroll::-webkit-scrollbar {
+  display: none;
+}
+/* cleanup: border-accent/12 bg-accent/[0.03] */
+.card[data-state="cleanup"] .preview-text-scroll {
+  border-color: color-mix(in oklab, var(--accent) 12%, transparent);
+  background-color: color-mix(in oklab, var(--accent) 3%, transparent);
+}
+
+/* text-[13px] leading-[1.52] text-foreground whitespace-pre-wrap break-words [text-wrap:pretty] */
+.text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.52;
+  color: var(--foreground);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  text-wrap: pretty;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.5;
+  }
+}
+@keyframes preview-bars {
+  0%,
+  100% {
+    transform: scaleY(0.7);
+    opacity: 0.6;
+  }
+  50% {
+    transform: scaleY(1.3);
+    opacity: 1;
+  }
+}
