@@ -1181,7 +1181,7 @@ class App:
             final_s = time.monotonic() - t1
             processed = None
             if self._polish_wanted(final):
-                typer.revise(final)  # the checked text goes in place while the language model works
+                # the field keeps what was typed while the model works: the text is replaced once, at the end
                 processed = self._process_text(final)
             typer.finish((processed or final) if final.strip() else None)
             typer.done.wait(cfg.undelivered_wait_s + 4.0)

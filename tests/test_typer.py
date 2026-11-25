@@ -720,8 +720,9 @@ def test_language_model_runs_inside_the_stop_step(session, tmp_path):
     seen = {}
     threading.Timer(0.5, lambda: seen.setdefault("during", f.text)).start()
     app._session()
-    assert seen["during"] == "Ну, короче, завтра в десять."  # the checked text is in place while the model works
-    assert f.text == "Завтра в десять."  # then the processed text replaces it
+    assert seen["during"] == "ну короче завтра в десять"  # nothing is rewritten while the model works...
+    assert f.text == "Завтра в десять."  # ...the processed text replaces it once
+    assert app.last.revisions_applied == 1
     assert tp.started == ["light"]  # the server was started at the hotkey, in the background
     assert tp.calls == [pytest.approx(2.0 + 0.1 * 5)]  # light: 2 s + 0.1 s per word
     assert app.ui.done_at >= tp.returned_at  # "done" comes after the processed text
