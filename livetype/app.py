@@ -919,6 +919,7 @@ class App:
         self.last: SessionReport | None = None
         self.text_processor = None  # set when the language-model pass is available
         self.polish_job: PolishJob | None = None
+        self._restart = False  # the hotkey was pressed during the text pass
         self.on_text_settings_changed: Callable[[], None] = lambda: None
         self.arm_cancel: Callable[[bool], None] = lambda on: None  # Esc cancels while dictating
         t = time.perf_counter()
@@ -998,9 +999,12 @@ class App:
                 log.exception("session failed")
                 self.ui.notice("Ошибка", str(e)[:120], kind="error")
             self.phase = "idle"
-            # presses made while the final check was running must not start a new dictation
+            # presses made while the final check was running must not start a new dictation...
             if "quit" in self._drain(self.cmds, 0):
                 return
+            if self._restart:  # ...except one that stopped the text pass: it starts the next one
+                self._restart = False
+                self.cmds.put("toggle")
             if self.once:
                 job = self.polish_job
                 if job is not None:
@@ -1057,6 +1061,48 @@ class App:
         if _takes(engine.finish, "budget_s"):
             return engine.finish(budget_s=float(getattr(self.cfg, "stop_budget_s", 0.8)))
         return engine.finish()
+
+    def _process_text(self, text: str) -> str | None:
+        """The language model's version of `text`, inside the stop step (the capsule shows
+        processing). A hotkey press or Esc stops it (the press then starts the next dictation).
+        None when there is no different answer in time."""
+        from livetype import llm
+
+        tp, cfg = self.text_processor, self.cfg
+        cancel = threading.Event()
+        box: dict = {}
+
+        def work() -> None:
+            try:
+                box["out"] = tp.process(text, cfg.text_rules, model=cfg.text_model,
+                                        timeout=llm.deadline_s(cfg.text_model, text), cancel=cancel)
+            except Exception:
+                log.exception("text processing failed")
+
+        t0 = time.monotonic()
+        worker = threading.Thread(target=work, name="text-processing", daemon=True)
+        worker.start()
+        while worker.is_alive():
+            worker.join(0.05)
+            cmds = self._drain(self.cmds, 0) if not self.cmds.empty() else []
+            if "quit" in cmds:
+                self.cmds.put("quit")
+            if cmds:
+                cancel.set()
+                self._restart = "toggle" in cmds and "quit" not in cmds
+                break
+        worker.join(2.0)
+        out = box.get("out")
+        if cancel.is_set():
+            result, out = "cancelled", None
+        elif not out:
+            result = "rejected"
+        elif one_line(out).strip() == one_line(text).strip():
+            result, out = "same", None
+        else:
+            result = "applied"
+        self._event(f"EVENT processed result={result} model={cfg.text_model} llm={time.monotonic() - t0:.1f}s")
+        return out
 
     def _polish_wanted(self, final: str) -> bool:
         tp = self.text_processor
@@ -1133,9 +1179,11 @@ class App:
             t1 = time.monotonic()
             final = self._finish_engine(engine) or ""  # without the final check this is the live text
             final_s = time.monotonic() - t1
-            polish = self._polish_wanted(final)
-            typer.keep_open = polish
-            typer.finish(final if final.strip() else None)
+            processed = None
+            if self._polish_wanted(final):
+                typer.revise(final)  # the checked text goes in place while the language model works
+                processed = self._process_text(final)
+            typer.finish((processed or final) if final.strip() else None)
             typer.done.wait(cfg.undelivered_wait_s + 4.0)
             outcome = typer.result or "timeout"
             stop_to_done = time.monotonic() - t1
@@ -1143,10 +1191,11 @@ class App:
             self._report(outcome, typer.detail, changes, typer.wait_reason)  # "done" right after the final apply
             ended = True
             dec = engine.decode_times
-            best = final if final.strip() and typer.detail != "kept_live" else engine.live_text
-            hid = self._save_history({
-                "text": best, "live": engine.live_text, "final": final, "processed": None, "outcome": outcome,
-            })
+            best = (processed or final) if final.strip() and typer.detail != "kept_live" else engine.live_text
+            entry = {"text": best, "live": engine.live_text, "final": final, "processed": processed, "outcome": outcome}
+            if processed:
+                entry["processed_applied"] = outcome == "done"
+            hid = self._save_history(entry)
             self.last = SessionReport(
                 live_text=engine.live_text, final_text=final, outcome=outcome, detail=typer.detail,
                 user_edits=typer.user_edits, mode=typer.mode, seconds=time.monotonic() - t0, final_pass_s=final_s,
@@ -1162,10 +1211,6 @@ class App:
             if self.debug:
                 print("LIVE: " + engine.live_text, flush=True)
                 print("FINAL: " + final, flush=True)
-            if polish and outcome in ("done", "partial") and typer.done.is_set():
-                self.polish_job = PolishJob(self, typer, watcher, final, cfg.text_model, cfg.text_rules, hid)
-                self.polish_job.start()
-                handed_off = True
         finally:
             # whatever happened (a microphone error, a crash in the engine), leave nothing running
             # and never leave the capsule stuck on screen

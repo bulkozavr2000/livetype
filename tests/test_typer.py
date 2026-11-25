@@ -714,52 +714,44 @@ def _with_llm(app, answer, delay=0.0):
     return app.text_processor
 
 
-def test_language_model_runs_after_done_and_never_delays_it(session, tmp_path):
+def test_language_model_runs_inside_the_stop_step(session, tmp_path):
     app, f, fw, _, _ = session(OldEngine, [("commit", "ну короче завтра в десять")], "Ну, короче, завтра в десять.")
     tp = _with_llm(app, "Завтра в десять.", delay=0.8)
+    seen = {}
+    threading.Timer(0.5, lambda: seen.setdefault("during", f.text)).start()
     app._session()
-    assert app.ui.done_at is not None and app.last.stop_to_done_s < 0.5
-    assert f.text == "Ну, короче, завтра в десять."  # the ASR text is in place at done
+    assert seen["during"] == "Ну, короче, завтра в десять."  # the checked text is in place while the model works
+    assert f.text == "Завтра в десять."  # then the processed text replaces it
     assert tp.started == ["light"]  # the server was started at the hotkey, in the background
-    app.polish_job.join(5)
     assert tp.calls == [pytest.approx(2.0 + 0.1 * 5)]  # light: 2 s + 0.1 s per word
-    assert tp.returned_at - app.ui.done_at > 0.6  # "done" did not wait for the answer
-    assert app.polish_job.result == "applied" and f.text == "Завтра в десять."
+    assert app.ui.done_at >= tp.returned_at  # "done" comes after the processed text
     h = _history(tmp_path)[-1]
-    assert h["processed"] == "Завтра в десять." and h["processed_applied"] and h["final"] == "Ну, короче, завтра в десять."
+    assert (h["text"], h["final"], h["processed"], h["processed_applied"]) == (
+        "Завтра в десять.", "Ну, короче, завтра в десять.", "Завтра в десять.", True)
+    assert not app.ui.titles("notice")
 
 
-def test_language_model_result_goes_to_history_when_the_user_typed_since_done(session, tmp_path):
-    holder = {}
-    app, f, fw, _, watchers = session(OldEngine, [("commit", "ну короче завтра в десять")],
-                                      "Ну, короче, завтра в десять.")
-    _with_llm(app, "Завтра в десять.", delay=0.5)
-    app._session()
-    holder["w"] = watchers[0]
-    holder["w"].user()  # the user goes on typing after done
-    app.polish_job.join(5)
-    assert app.polish_job.result == "saved" and f.text == "Ну, короче, завтра в десять."
-    h = _history(tmp_path)[-1]
-    assert h["processed"] == "Завтра в десять." and h["processed_applied"] is False
-    assert app.ui.titles("notice")[-1] == "Обработанный текст — в истории"
-
-
-def test_a_new_dictation_cancels_the_language_model(session, tmp_path):
+def test_a_hotkey_press_stops_the_language_model_and_starts_the_next_dictation(session, tmp_path):
     app, f, fw, _, _ = session(OldEngine, [("commit", "раз два")], "Раз, два.")
     tp = _with_llm(app, "Раз-два.", delay=10)
+    def press_while_processing():
+        while not tp.calls:
+            time.sleep(0.01)
+        time.sleep(0.2)
+        app.cmds.put("toggle")
+
+    threading.Thread(target=press_while_processing, daemon=True).start()
     app._session()
-    job = app.polish_job
-    assert job is not None and job.is_alive()
-    t0 = time.monotonic()
-    app._end_polish(wait=True)  # what the next hotkey press does first
-    assert time.monotonic() - t0 < 1.0 and not job.is_alive() and tp.cancelled.is_set()
-    assert job.result == "cancelled" and "processed_applied" not in _history(tmp_path)[-1]
-    assert f.text == "Раз, два."
+    assert tp.cancelled.is_set() and app.last.stop_to_done_s < 2.5
+    assert f.text == "Раз, два."  # the checked text stays
+    assert app._restart  # the press starts the next dictation
+    h = _history(tmp_path)[-1]
+    assert h["processed"] is None and "processed_applied" not in h
 
 
 def test_language_model_end_to_end_with_a_fake_llama_server(session, tmp_path):
     # the real TextProcessor over HTTP: the server is started at the hotkey (in the background),
-    # "done" comes before the answer, the answer is one line and goes in place under the safe rules
+    # the answer is one line and replaces the text before "done"
     srv = FakeLlama(answer="Завтра в десять.\n\nВ офисе.", delay=0.6)
     final = "Ну, короче, завтра в десять в офисе."
     app, f, fw, _, _ = session(OldEngine, [("commit", "ну короче завтра в десять в офисе")], final)
@@ -767,10 +759,8 @@ def test_language_model_end_to_end_with_a_fake_llama_server(session, tmp_path):
     app.text_processor = tp = srv.processor()
     try:
         app._session()
-        assert app.last.stop_to_done_s < 0.5 and f.text == final
+        assert f.text == "Завтра в десять. В офисе"
         assert srv.launched == ["light"]
-        app.polish_job.join(10)
-        assert app.polish_job.result == "applied" and f.text == "Завтра в десять. В офисе"
         assert len(srv.requests) == 1 and fw.returns == 0
         h = _history(tmp_path)[-1]
         assert (h["final"], h["processed"], h["processed_applied"]) == (final, "Завтра в десять. В офисе", True)
@@ -785,11 +775,10 @@ def test_language_model_deadline_with_a_fake_llama_server(session, tmp_path):
     app.cfg.text_processing = True
     app.text_processor = tp = srv.processor()
     try:
-        app._session()
         t0 = time.monotonic()
-        app.polish_job.join(10)
-        assert time.monotonic() - t0 < 3.2  # given up at 2 s + 0.1 s per word (from done)
-        assert app.polish_job.result == "rejected" and f.text == "Раз, два, три."
+        app._session()
+        assert time.monotonic() - t0 < 4.5  # given up at 2 s + 0.1 s per word
+        assert f.text == "Раз, два, три."
         assert _history(tmp_path)[-1]["processed"] is None
     finally:
         tp.stop()
@@ -800,8 +789,7 @@ def test_rejected_language_model_answer_changes_nothing(session, tmp_path):
     app, f, fw, _, _ = session(OldEngine, [("commit", "раз два")], "Раз, два.")
     _with_llm(app, None, delay=0.05)  # the guards rejected it (or it came too late)
     app._session()
-    app.polish_job.join(5)
-    assert app.polish_job.result == "rejected" and f.text == "Раз, два."
+    assert f.text == "Раз, два."
     assert _history(tmp_path)[-1]["processed"] is None
 
 

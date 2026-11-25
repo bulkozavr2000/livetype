@@ -59,14 +59,15 @@ microphone ─► Silero VAD cuts the recording at pauses into segments of a few
                  │  each segment, as soon as it closes (listening goes on)
                  ▼
              speech recognizer ─► its text is typed into the focused field (SendInput)
-stop ─► the whole recording is recognized once more; its punctuation goes onto the typed words (+ optional local LLM)
+stop ─► the whole recording is recognized once more; its punctuation goes onto the typed words
+     ─► text processing on: a local language model fixes the text by meaning, in place, before "done"
 ```
 
 - **Speech recognition:** every segment is recognized once, by the accurate model, and typed as is. At stop the whole recording is recognized again, the way Type does it, and its punctuation and capital letters are put onto the typed words in place (a pause taken for the end of a sentence is only known once you have finished); the words stay those of the segments, which are recognized better. On 24 test dictations this mix keeps the word errors of the segments (5.5% clean, 15.7% laptop; the whole recording alone: 5.4%, 17.7%) and the few extra periods of the whole recording (5 and 7, segments alone: 9 and 14). It works in the middle of a document too. If [Type](https://gigatype.app) is installed on the computer, LiveType makes a local copy of Type's recognizer module and model on its first start (in its data folder, never in the installer) and runs that, so the text is what Type itself would type, and it keeps working if Type is removed later. Otherwise it uses [GigaAM v3](https://github.com/salute-developers/GigaAM) e2e RNNT (Sber, MIT; int8 ONNX via [onnx-asr](https://github.com/istupakov/onnx-asr)).
 - **Segments:** a segment closes at the first pause of 0.4 s after 2 s of audio, at a 0.2 s pause after 5 s, and is cut at its quietest point at 15 s.
 - **Typing into any app:** keyboard emulation (works with any layout). Windows UI Automation finds *your* dictated text in the field, so new words land right after it even if you clicked elsewhere, and the final correction only retypes the changed part.
 - **Hotkey:** a tiny separate listener process (low-level keyboard hook), so the keyboard never lags while recognition runs.
-- **Text processing:** [llama.cpp](https://github.com/ggml-org/llama.cpp) server with Qwen models (Apache-2.0), answers that differ too much from what you said are discarded.
+- **Text processing:** [llama.cpp](https://github.com/ggml-org/llama.cpp) server with Qwen models (Apache-2.0). It is part of the stop step: the checked text is already in the field, the model's version replaces it in place before "done" (pressing the hotkey meanwhile stops it and starts a new dictation). Answers that differ too much from what you said are discarded.
 - **Desktop UI:** Electron; the recording capsule, sounds and panel layout are adapted from the MIT-licensed Type / OpenWhispr apps.
 
 ## Languages

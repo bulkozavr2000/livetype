@@ -94,7 +94,7 @@ RULE_TEXT = {  # Type's preset instructions
 
 # deadlines after "done" (the request runs in the background; a late answer is dropped)
 LIGHT_BASE_S, LIGHT_PER_WORD_S, LIGHT_CAP_S = 2.0, 0.1, 15.0
-ACCURATE_CAP_S = 60.0
+ACCURATE_BASE_S, ACCURATE_PER_WORD_S, ACCURATE_CAP_S = 20.0, 0.4, 150.0
 IDLE_STOP_S = 300.0  # stop llama-server after 5 minutes unused
 MAX_WER = 0.15  # the answer may differ from the dictated text by at most this (fillers aside)
 
@@ -102,7 +102,7 @@ MAX_WER = 0.15  # the answer may differ from the dictated text by at most this (
 def deadline_s(model: str, text: str) -> float:
     if model == "light":
         return min(LIGHT_CAP_S, LIGHT_BASE_S + LIGHT_PER_WORD_S * len(text.split()))
-    return ACCURATE_CAP_S
+    return min(ACCURATE_CAP_S, ACCURATE_BASE_S + ACCURATE_PER_WORD_S * len(text.split()))
 
 
 # --------------------------------------------------------------------------- fillers

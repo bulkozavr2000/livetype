@@ -108,7 +108,8 @@ def test_answer_is_one_line():
 def test_deadlines():
     assert llm.deadline_s("light", "раз два три") == pytest.approx(2.3)
     assert llm.deadline_s("light", " ".join(["слово"] * 500)) == 15.0
-    assert llm.deadline_s("accurate", "раз два три") == 60.0
+    assert llm.deadline_s("accurate", "раз два три") == pytest.approx(21.2)
+    assert llm.deadline_s("accurate", " ".join(["слово"] * 500)) == 150.0
 
 
 # --------------------------------------------------------------------------- server lifecycle (fake llama-server)

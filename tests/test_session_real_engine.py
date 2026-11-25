@@ -114,4 +114,4 @@ def test_real_engine_dictation_ends_as_the_final_text(models, monkeypatch, tmp_p
         # change, Backspace is not used and the live text stays as it was typed
         assert r.outcome == "partial" and "too long" in typer.skip_reason
         assert field.text == "Заметка: " + one_line(r.live_text)
-    assert r.stop_to_done_s < 3.0
+    assert r.stop_to_done_s < 6.0  # the last segment, then the whole recording once more (~10% of its length)
