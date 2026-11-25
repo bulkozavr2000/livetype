@@ -3,7 +3,8 @@
 The live model re-recognizes the current phrase every ~0.3 s. Its guess for the
 last words keeps changing while you speak. A word is typed only when two
 consecutive guesses agree on it (LocalAgreement-2) and it is not the very last
-word of the guess (that one may be cut off mid-word).
+word of the guess (that one may be cut off mid-word). The engine may allow the
+last word too once the speaker has been silent for a moment (`settle_last`).
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 _NON_WORD = re.compile(r"[^\w]+", re.UNICODE)
+_TRAIL = re.compile(r"[^\w]+$", re.UNICODE)
 
 
 @dataclass(frozen=True)
@@ -25,6 +27,14 @@ class Word:
 def norm(word: str) -> str:
     """Compare words ignoring case, punctuation and ё/е."""
     return _NON_WORD.sub("", word).lower().replace("ё", "е")
+
+
+def split_trail(word: str) -> tuple[str, str]:
+    """("слово,", ) -> ("слово", ","). A word that is only punctuation ("—") is kept whole."""
+    m = _TRAIL.search(word)
+    if not m or m.start() == 0:
+        return word, ""
+    return word[: m.start()], word[m.start() :]
 
 
 def words_from_tokens(tokens: Sequence[str], timestamps: Sequence[float]) -> list[Word]:
@@ -58,6 +68,16 @@ class Stabilizer:
         self.pending: list[str] = []  # tentative words after the settled ones
         self._prev_tail: list[str] | None = None
 
+    def seed(self, words: Sequence[str]) -> None:
+        """Start a phrase that continues after a cut: these words were typed already.
+
+        They stay as context (the boundary search below finds them in the new guesses)
+        but are never returned again.
+        """
+        self.committed = list(words)
+        self.pending = []
+        self._prev_tail = None
+
     def offset(self, hyp: Sequence[str]) -> int:
         """Index in `hyp` where the not-yet-settled part starts.
 
@@ -74,12 +94,16 @@ class Stabilizer:
                 return i + 1
         return min(n, len(hyp))
 
-    def update(self, hyp: Sequence[str]) -> list[str]:
-        """Feed a new guess for the open phrase. Returns newly settled words."""
+    def update(self, hyp: Sequence[str], settle_last: bool = False) -> list[str]:
+        """Feed a new guess for the open phrase. Returns newly settled words.
+
+        settle_last: the speaker is silent, so the last word of the guess is complete and
+        may settle too (still only when two guesses agree on it).
+        """
         tail = list(hyp[self.offset(hyp) :])
         new: list[str] = []
         if self._prev_tail is not None:
-            limit = len(tail) - 1  # never settle the last word of a guess
+            limit = len(tail) if settle_last else len(tail) - 1  # normally never the last word
             for i in range(min(limit, len(self._prev_tail))):
                 if norm(self._prev_tail[i]) != norm(tail[i]):
                     break

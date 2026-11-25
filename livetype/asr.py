@@ -1,4 +1,4 @@
-"""Offline models: GigaAM v3 e2e (speech -> punctuated text) and Silero VAD."""
+"""Offline models: GigaAM v3 e2e (speech -> punctuated text) and Silero VAD (v6.2)."""
 
 from __future__ import annotations
 
@@ -114,7 +114,11 @@ class Recognizer:
 
 
 class StreamingVad:
-    """Silero VAD v5 fed frame by frame (512 samples = 32 ms)."""
+    """Silero VAD fed frame by frame (512 samples = 32 ms).
+
+    The shipped file (istupakov/silero-vad-onnx, pinned above) is byte-identical to Silero VAD v6.2
+    (snakers4/silero-vad tag v6.2, sha256 1a153a22...).
+    """
 
     FRAME = 512
     CONTEXT = 64
