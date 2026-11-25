@@ -21,7 +21,7 @@ from livetype.asr import Recognizer, StreamingVad
 from livetype.audio import Source
 from livetype.config import DATA_DIR, HISTORY_PATH, Config
 from livetype.engine import DictationEngine
-from livetype.textops import common_affixes, merge_user_edits, plan_replacement
+from livetype.textops import common_affixes, merge_user_edits, plan_replacement, split_final
 
 log = logging.getLogger("livetype")
 
@@ -53,6 +53,8 @@ class Typer(threading.Thread):
     * You type or click yourself -> waits until you pause. With UI Automation the next words
       go right after *our* text and your cursor is put back; without it (rare apps) the
       typing continues at the end of the field (Ctrl+End).
+    * Our text is gone from the field (you deleted it with what was around it): the words go
+      on at your cursor if it is still in that field; otherwise the rest goes to the clipboard.
     * At the end: applies the final corrections in place, keeping words you changed by hand.
     """
 
@@ -64,6 +66,7 @@ class Typer(threading.Thread):
         self.live = live  # False: keep words until the end and insert the final text once (Type's style)
         self.q: queue.Queue[tuple[str, str | None]] = queue.Queue()
         self.base = ""  # everything we typed, in order (our live text)
+        self.seg_start = 0  # base[:seg_start] was lost from the field: only the rest is fixed in place
         self.edited = False  # keystroke mode: the user touched the field, positions are unknown
         self.user_edits = 0
         self.mode = "keys"  # "uia" | "keys" | "lost" (our place in the field is gone: rest -> clipboard)
@@ -192,7 +195,7 @@ class Typer(threading.Thread):
         self.base += text
 
     def _type_uia(self, text: str) -> bool:
-        from livetype.uia import Caret
+        from livetype.uia import END, Caret, point
 
         a = self.anchor
         if not self._user_moved and self.at_end:
@@ -201,41 +204,86 @@ class Typer(threading.Thread):
             self.base += text
             return True
         self._user_moved = False
-        end = a.end()
-        if end is None:
-            log.info("our text is no longer found in the field")
-            return False
+        for _ in range(3):  # a read may come while the field is still being updated
+            raw, span, region = a.find()
+            if region is not None:
+                break
+            time.sleep(0.1)
+        else:
+            return self._go_on_at_caret(text)
+        a.text = raw[span[0]:span[1]]  # with the user's edits inside it
+        shown = text
+        if not a.text and (span[0] == 0 or raw[span[0] - 1].isspace()):
+            shown = text.lstrip()  # everything before was deleted: no leading space
+        end = point(region, END)
         user_field = self.uia.text_field()
-        same = user_field is not None and user_field.same_as(a.field.el)
         caret = Caret(user_field) if user_field is not None else None
-        at_our_end = bool(caret and same and caret.at(end))
-        was_after = bool(caret and same and caret.after_point(end))
+        at_our_end, was_after = self._caret_vs(caret, user_field, end, span[1])
         if not a.field.has_focus():
             a.field.focus()
-        end.Select()
-        win.type_text(text)
-        a.text += text
+        self._select(end)
+        win.type_text(shown)
+        a.text += shown
         self.base += text
         self._wait_visible()
         if caret is not None and not at_our_end:
-            if not caret.restore(shifted_by=len(text), was_after_insert=was_after):
+            if not caret.restore(shifted_by=len(shown), was_after_insert=was_after):
                 log.info("could not put the user's cursor back")
             self.at_end = False
         else:
             self.at_end = True
         return True
 
+    def _caret_vs(self, caret, user_field, end, end_at: int) -> tuple[bool, bool]:
+        """Is the user's cursor right at the end of our text / after it? Compared by offsets in
+        the field's text when possible: two ranges at the same place may not compare equal
+        (Chromium: the end of a text node vs. the start of the next one)."""
+        if caret is None or user_field is None or not user_field.same_as(self.anchor.field.el):
+            return False, False
+        if caret.span is not None:
+            return caret.span == (end_at, end_at), caret.span[0] > end_at
+        return caret.at(end), caret.after_point(end)
+
+    def _select(self, rng) -> bool:
+        """Select through UI Automation; keystrokes must not go out before the field has it."""
+        if self.anchor.field.select(rng):
+            return True
+        log.info("the field did not take our selection in time; trying again")
+        return self.anchor.field.select(rng, timeout=0.6)
+
+    def _go_on_at_caret(self, text: str) -> bool:
+        """Our text and what was around it are gone from the field (deleted, a message sent).
+        If the cursor is still in that field, the dictation goes on at the cursor: only that
+        part can be fixed in place at the end, and the whole corrected text goes to the clipboard.
+        In another field (a search box...) nothing is typed: the rest goes to the clipboard."""
+        from livetype.uia import Anchor
+
+        field_ = self.uia.text_field()
+        if field_ is None or not field_.same_as(self.anchor.field.el):
+            log.info("our text is no longer found in the field")
+            return False
+        if field_.selected_text():  # typing now would replace the text you selected
+            log.info("our text is no longer found in the field, and text is selected there")
+            return False
+        log.info("our text is no longer found in the field: going on at the cursor")
+        a = Anchor(field_)
+        shown = text.lstrip() if not a.head or a.head[-1].isspace() else text
+        self.base += text[: len(text) - len(shown)]
+        self.seg_start = len(self.base)
+        self.anchor = a
+        win.type_text(shown)
+        a.text += shown
+        self.base += shown
+        self.at_end = True
+        self.ui.notice("Продолжаю там, где курсор", "прежний текст не найден в поле", kind="warning")
+        return True
+
     def _wait_visible(self, timeout: float = 0.6) -> bool:
         """Keystrokes are processed asynchronously: wait until our text shows up in the field."""
         t_end = time.monotonic() + timeout
         while time.monotonic() < t_end:
-            r = self.anchor.region() if self.anchor else None
-            if r is not None:
-                try:
-                    if r.GetText(-1).endswith(self.anchor.text[-30:]):
-                        return True
-                except Exception:
-                    pass
+            if self.anchor is not None and self.anchor.visible():
+                return True
             time.sleep(0.02)
         return False
 
@@ -275,20 +323,35 @@ class Typer(threading.Thread):
         return "inserted"
 
     def _final_uia(self, final: str) -> str | None:
-        from livetype.uia import CHAR, END, START, Caret, point
-
         if win.foreground() != self.target or not win.wait_modifiers_released(3.0):
             return None
+        self._wait_visible()  # the last words may still be on their way into the field
         a = self.anchor
-        region = a.region()
+        base, target = self.base, final
+        if self.seg_start:  # our earlier text was lost: only what was typed since can be fixed here
+            base, target = base[self.seg_start:], split_final(self.base, self.seg_start, final)[1]
+        raw, span, region = a.find()
         if region is None:
             return None
-        current = region.GetText(-1)
-        merged = merge_user_edits(self.base, current, final)
+        current = raw[span[0]:span[1]]
+        merged = merge_user_edits(base, current, target)
         if len(merged) < 0.5 * len(current):
-            return "kept_live"
-        if merged == current:
-            return "same"
+            res = "kept_live"
+        elif merged == current:
+            res = "same"
+        else:
+            res = self._replace(region, span[1], current, merged, base)
+        if self.seg_start:
+            win.set_clipboard(final)
+            return "partial"
+        return res
+
+    def _replace(self, region, end_at: int, current: str, merged: str, base: str) -> str:
+        """Turn our text in the field (`region`, now `current`, ending at offset `end_at` of the
+        field's text) into `merged`, retyping only the changed middle; put the user's cursor back."""
+        from livetype.uia import CHAR, END, START, Caret, point
+
+        a = self.anchor
         p, s = common_affixes(current, merged)
         sub = region.Clone()
         sub.MoveEndpointByUnit(START, CHAR, p)
@@ -296,22 +359,19 @@ class Typer(threading.Thread):
         if sub.GetText(-1) != current[p : len(current) - s]:
             sub, p, s = region, 0, 0
         user_field = self.uia.text_field()
-        same = user_field is not None and user_field.same_as(a.field.el)
         caret = Caret(user_field) if user_field is not None else None
-        end = point(region, END)
-        at_our_end = bool(caret and same and caret.at(end))
-        was_after = bool(caret and same and caret.after_point(end))
+        at_our_end, was_after = self._caret_vs(caret, user_field, point(region, END), end_at)
         if not a.field.has_focus():
             a.field.focus()
-        sub.Select()
+        self._select(sub)
         insert = merged[p : len(merged) - s]
         if insert:
             win.type_text(insert)
         else:
             win.press(win.VK_BACK)
-        user_kept = current != self.base
+        user_kept = current.replace("\xa0", " ") != base  # a contenteditable's U+00A0 is not an edit
         a.text = merged
-        self.base = merged
+        self.base = self.base[: self.seg_start] + merged
         self._wait_visible()
         if caret is not None and not at_our_end:
             caret.restore(shifted_by=len(merged) - len(current), was_after_insert=was_after)
@@ -567,11 +627,12 @@ class App:
                 self.ui.done("Текст проверен", sub)
             elif outcome in ("same", "kept_live", "inserted"):
                 self.ui.done("Готово", "ошибок не найдено" if outcome == "same" else "")
-            elif outcome.startswith("clipboard"):
+            elif outcome.startswith("clipboard") or outcome == "partial":
                 why = {"clipboard_edited": "вы правили текст во время диктовки",
                        "clipboard_terminal": "в терминале правка на месте отключена",
                        "clipboard_lost": "не нашёл в поле продиктованный текст",
-                       "clipboard_unfocused": "окно было неактивно"}.get(outcome, "")
+                       "clipboard_unfocused": "окно было неактивно",
+                       "partial": "в поле исправлена только последняя часть"}.get(outcome, "")
                 self.ui.notice("Исправленный текст — в буфере (Ctrl+V)", why, kind="success")
                 self.ui.finish()
             else:

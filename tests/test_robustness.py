@@ -101,11 +101,38 @@ class _Ui:
         self.notices.append(title)
 
 
+class _Field:
+    """A text field with the focus; `same` = it is the field where the dictation started."""
+
+    def __init__(self, same: bool = True, selected: str = ""):
+        self.same, self.el, self.selected = same, object(), selected
+
+    def same_as(self, el):
+        return self.same
+
+    def selection(self):
+        return None  # an empty field: nothing before or after the cursor
+
+    def selected_text(self):
+        return self.selected
+
+
+class _Uia:
+    def __init__(self, field):
+        self.field = field
+
+    def text_field(self):
+        return self.field
+
+
 class _LostAnchor:
     text = "начало "
 
-    def end(self):
-        return None  # our text is no longer found in the field
+    def __init__(self, field=None):
+        self.field = field or _Field()
+
+    def find(self):
+        return "", None, None  # our text is no longer found in the field
 
 
 def test_lost_place_goes_to_clipboard_not_keystrokes(monkeypatch):
@@ -115,7 +142,8 @@ def test_lost_place_goes_to_clipboard_not_keystrokes(monkeypatch):
     monkeypatch.setattr(win, "window_process", lambda h: "notepad.exe")
     ui = _Ui()
     t = Typer(config.Config(), 1, None, ui, lambda: None)
-    t.mode, t.anchor, t.uia = "uia", _LostAnchor(), object()
+    # the cursor is in another field now (a search box...): typing there would be wrong
+    t.mode, t.anchor, t.uia = "uia", _LostAnchor(), _Uia(_Field(same=False))
     t.base, t._user_moved = "начало ", True
     t._type("и конец")
     assert typed == [] and t.mode == "lost" and ui.notices
@@ -123,6 +151,34 @@ def test_lost_place_goes_to_clipboard_not_keystrokes(monkeypatch):
     assert typed == []
     assert t._final("Начало и конец ещё.", "") == "clipboard_lost"
     assert clip == ["Начало и конец ещё."]
+
+
+def test_lost_place_in_the_same_field_goes_on_at_the_cursor(monkeypatch):
+    typed = []
+    monkeypatch.setattr(win, "type_text", lambda t, *a, **k: typed.append(t))
+    monkeypatch.setattr(win, "window_process", lambda h: "notepad.exe")
+    t = Typer(config.Config(), 1, None, _Ui(), lambda: None)
+    field = _Field()  # e.g. the message was sent and the composer is empty again
+    t.mode, t.anchor, t.uia = "uia", _LostAnchor(field), _Uia(field)
+    t.base, t._user_moved = "начало", True
+    t._type(" и конец")
+    assert typed == ["и конец"] and t.mode == "uia"  # no leading space in an empty field
+    assert t.base == "начало и конец" and t.base[t.seg_start:] == "и конец"
+    assert t.anchor.field is field and t.anchor.text == "и конец" and t.at_end
+    t._type(" ещё")  # the next words simply follow at the cursor
+    assert typed == ["и конец", " ещё"] and t.base[t.seg_start:] == "и конец ещё"
+
+
+def test_lost_place_never_types_over_a_selection(monkeypatch):
+    typed = []
+    monkeypatch.setattr(win, "type_text", lambda t, *a, **k: typed.append(t))
+    monkeypatch.setattr(win, "window_process", lambda h: "notepad.exe")
+    t = Typer(config.Config(), 1, None, _Ui(), lambda: None)
+    field = _Field(selected="текст, который вы выделили")
+    t.mode, t.anchor, t.uia = "uia", _LostAnchor(field), _Uia(field)
+    t.base, t._user_moved = "начало", True
+    t._type(" и конец")
+    assert typed == [] and t.mode == "lost"
 
 
 def test_terminal_detection(monkeypatch):

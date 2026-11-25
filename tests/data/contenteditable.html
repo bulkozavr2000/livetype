@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>LiveType editor loading</title>
+<style>
+  html, body { margin: 0; height: 100%; }
+  #ed { width: 100%; height: 100%; box-sizing: border-box; padding: 12px; outline: 0;
+        font: 16px "Segoe UI", sans-serif; overflow: auto; }
+</style>
+</head>
+<body>
+<!-- a plain contenteditable without white-space: pre-wrap, like many web composers:
+     the browser stores a space typed at the end of a line as U+00A0 -->
+<div id="ed" contenteditable="true" spellcheck="false"></div>
+<script>
+  const p = new URLSearchParams(location.search);
+  const ed = document.getElementById('ed');
+  const text = p.get('text') || '';
+  // two spaces in a row: the browser itself would store the second one as U+00A0;
+  // lines become text nodes separated by <br>
+  text.split('\n').forEach((line, i) => {
+    if (i) ed.appendChild(document.createElement('br'));
+    ed.appendChild(document.createTextNode(line.replace(/  /g, ' ' + String.fromCharCode(160))));
+  });
+  const c = parseInt(p.get('caret') || '-1', 10);
+  ed.focus();
+  if (text) {
+    let at = c >= 0 ? Math.min(c, text.length) : text.length, node = null;
+    for (const n of ed.childNodes) {  // find the text node that holds offset `at`
+      if (n.nodeType !== 3) { at -= 1; continue; }
+      node = n;
+      if (at <= n.length) break;
+      at -= n.length;
+    }
+    const r = document.createRange();
+    r.setStart(node, Math.max(0, Math.min(at, node.length)));
+    r.collapse(true);
+    const s = getSelection();
+    s.removeAllRanges();
+    s.addRange(r);
+  }
+  document.title = p.get('title') || 'LiveType Edge test';
+</script>
+</body>
+</html>

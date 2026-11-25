@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>LiveType editor loading</title>
+<!-- a tiptap editor like the Claude desktop app's composer (tiptap = ProseMirror + extensions):
+     StarterKit (markdown-style input rules) and the Placeholder extension, whose text Claude
+     hides with CSS, so an empty field reads as a single "\n" through UI Automation.
+     Pinned versions from esm.sh; ?ph=1 shows the placeholder text instead. -->
+<style>
+  html, body { margin: 0; height: 100%; font: 16px "Segoe UI", sans-serif; }
+  #editor { height: 100%; }
+  .tiptap { padding: 8px 12px; outline: 0; min-height: 200px; white-space: pre-wrap; }
+  .tiptap p { margin: 0; }
+  .tiptap p.is-editor-empty:first-child::before { content: ''; float: left; height: 0; pointer-events: none; color: #999; }
+  body.ph .tiptap p.is-editor-empty:first-child::before { content: attr(data-placeholder); }
+</style>
+</head>
+<body>
+<div id="editor"></div>
+<script type="module">
+  try {
+    const [{ Editor }, { default: StarterKit }, { Placeholder }] = await Promise.all([
+      import("https://esm.sh/@tiptap/core@3.32.2"),
+      import("https://esm.sh/@tiptap/starter-kit@3.32.2"),
+      import("https://esm.sh/@tiptap/extensions@3.32.2"),
+    ]);
+    const p = new URLSearchParams(location.search);
+    if (p.get("ph") === "1") document.body.classList.add("ph");
+    const text = p.get("text") || "";
+    const editor = new Editor({
+      element: document.getElementById("editor"),
+      extensions: [StarterKit, Placeholder.configure({ placeholder: "Напишите сообщение…" })],
+      // JSON, not HTML: HTML parsing would collapse the double space of the test text
+      content: { type: "doc", content: text.split("\n").map((l) => ({ type: "paragraph", content: l ? [{ type: "text", text: l }] : [] })) },
+    });
+    window.editor = editor;
+    const c = parseInt(p.get("caret") || "-1", 10);
+    const at = c >= 0 ? Math.min(c, text.length) : text.length;
+    // a paragraph break is 2 positions (close + open) but 1 character ("\n") of the text
+    const pos = 1 + at + (text.slice(0, at).split("\n").length - 1);
+    editor.commands.focus();
+    editor.commands.setTextSelection(pos);
+    document.title = p.get("title") || "LiveType Edge test";
+  } catch (e) {
+    document.title = "LiveType editor failed: " + e;
+  }
+</script>
+</body>
+</html>
