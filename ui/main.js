@@ -20,7 +20,8 @@ const MOCK_ARGS = ARGV.filter((a) => a.startsWith("--mock-"));
 const PROJECT_ROOT = path.resolve(__dirname, "..");
 const APP_ID = "com.livetype.app";
 
-// Same rule as the engine (livetype/config.py): LIVETYPE_HOME > %APPDATA%\LiveType\home.txt > %LOCALAPPDATA%\LiveType
+// Same rule as the engine (livetype/config.py): LIVETYPE_HOME > %APPDATA%\LiveType\home.txt or
+// %LOCALAPPDATA%\LiveType\home.txt > %LOCALAPPDATA%\LiveType
 const DATA_DIR_NOTES = []; // why a pointer was not used (written to the log at start)
 function resolveDataDir() {
   if (process.env.LIVETYPE_HOME) return process.env.LIVETYPE_HOME;
@@ -32,17 +33,19 @@ function resolveDataDir() {
   } catch {
     /* not available */
   }
-  for (const root of [...new Set(roots.filter(Boolean))]) {
-    const pointer = path.join(root, "LiveType", "home.txt");
+  const local = path.join(process.env.LOCALAPPDATA || app.getPath("appData"), "LiveType");
+  const pointers = [...new Set(roots.filter(Boolean))].map((root) => path.join(root, "LiveType", "home.txt"));
+  pointers.push(path.join(local, "home.txt")); // seen by every process (see livetype/config.py)
+  for (const pointer of pointers) {
     try {
-      const text = fs.readFileSync(pointer, "utf8").replace(/^﻿/, "").trim();
+      const text = fs.readFileSync(pointer, "utf8").replace(/^\uFEFF/, "").trim();
       if (text) return text;
       DATA_DIR_NOTES.push(`${pointer}: empty`);
     } catch (error) {
       DATA_DIR_NOTES.push(`${pointer}: ${error.code || error.message}`);
     }
   }
-  return path.join(process.env.LOCALAPPDATA || app.getPath("appData"), "LiveType");
+  return local;
 }
 const DATA_DIR = resolveDataDir();
 // development: LIVETYPE_PYTHON, else a .venv in the repository, else one next to the models

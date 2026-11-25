@@ -20,12 +20,15 @@ def _data_dir() -> Path:
     env = os.environ.get("LIVETYPE_HOME")
     if env:
         return Path(env)
-    pointer = CONFIG_DIR / "home.txt"
-    if pointer.is_file():
-        text = pointer.read_text(encoding="utf-8").strip()
-        if text:
-            return Path(text)
-    return Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "LiveType"
+    local = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "LiveType"
+    # the pointer may also sit in the default data folder itself (%APPDATA% writes of some
+    # packaged apps' child processes are virtualized; %LOCALAPPDATA%\LiveType is seen by all)
+    for pointer in (CONFIG_DIR / "home.txt", local / "home.txt"):
+        if pointer.is_file():
+            text = pointer.read_text(encoding="utf-8-sig").strip()
+            if text:
+                return Path(text)
+    return local
 
 
 DATA_DIR = _data_dir()
