@@ -46,6 +46,40 @@ PANEL_KEYS = (
     "text_model", "text_rules", "show_capsule", "sounds",
 )
 
+# version of the settings layout; Config.save writes it, Config.load migrates older files
+CONFIG_VERSION = 2
+
+# Config.save writes every field, so an older settings file pins that version's defaults.
+# For each version: tuning defaults that changed after it (key -> the default it had).
+# On load, a key that still holds its old default gets the new one; values the user set are kept.
+OLD_DEFAULTS: dict[int, dict[str, object]] = {
+    1: {  # LiveType 0.2.x -> 0.3: final pass on short padded chunks, more sensitive VAD
+        "vad_threshold": 0.5,
+        "vad_neg_threshold": 0.35,
+        "chunk_gap_s": 1.2,
+        "chunk_soft_max_s": 22.0,
+    },
+}
+
+
+def migrate(data: dict) -> dict:
+    """Settings read from an older file -> settings for this version (a new dict).
+
+    A file without config_version is version 1. Keys whose value equals a default that has
+    changed since are dropped, so the new default applies. Everything else is kept as is.
+    """
+    out = dict(data)
+    version = out.get("config_version", 1)
+    if not isinstance(version, int) or isinstance(version, bool):
+        version = 1
+    for v in range(version, CONFIG_VERSION):
+        for key, old in OLD_DEFAULTS.get(v, {}).items():
+            if key in out and type(out[key]) is not bool and out[key] == old:
+                del out[key]
+    if version < CONFIG_VERSION:
+        out["config_version"] = CONFIG_VERSION
+    return out
+
 
 @dataclass
 class Config:
@@ -61,26 +95,32 @@ class Config:
     show_capsule: bool = True
     sounds: bool = True
 
+    config_version: int = CONFIG_VERSION
+
     # --- models ---
     models_dir: str = str(DATA_DIR / "models")
     live_model: str = "gigaam-v3-e2e-ctc"  # fast, re-run every ~0.3 s while you speak
-    final_model: str = "gigaam-v3-e2e-rnnt"  # more accurate, final check of the whole recording
+    # final check of every finished chunk, and of the last one at stop ("smart" model; gigaam-v3-e2e-ctc works too)
+    final_model: str = "gigaam-v3-e2e-rnnt"
     quantization: str = "int8"
     live_threads: int = 4
     final_threads: int = 2
+    quiet_gain: bool = False  # raise quiet speech (below about -50 dBFS) towards -26 dBFS before recognition
 
     # --- live pass: splitting speech into phrases ---
-    vad_threshold: float = 0.5
-    vad_neg_threshold: float = 0.35
+    vad_threshold: float = 0.4
+    vad_neg_threshold: float = 0.25
     live_min_silence_s: float = 0.45  # a pause this long closes a phrase
     decode_interval_s: float = 0.3
     max_live_segment_s: float = 7.0  # longer phrases are cut at a word boundary
     preroll_s: float = 0.25
     tail_pad_s: float = 0.2
 
-    # --- final pass: bigger chunks = more context for words and punctuation ---
-    chunk_gap_s: float = 1.2  # pause that closes a chunk
-    chunk_soft_max_s: float = 22.0
+    # --- final pass: short padded chunks (long noisy chunks make the model drop whole phrases) ---
+    chunk_gap_s: float = 0.75  # pause that closes a chunk
+    chunk_soft_max_s: float = 8.0  # a chunk closes at the next pause after this; it never exceeds this + 0.5 s
+    chunk_pad_s: float = 0.2  # audio added around a chunk (never into the previous one; none at a cut)
+    stop_budget_s: float = 0.8  # at stop, wait at most this long for final results; late chunks keep the live text
 
     # --- typing ---
     use_uia: bool = True  # find our text in the field via UI Automation (keeps words together)
@@ -98,13 +138,15 @@ class Config:
 
     @classmethod
     def load(cls, path: Path = CONFIG_PATH) -> Config:
+        """Read the settings file and migrate it in memory (the file is written only by save)."""
         cfg = cls()
         if path.is_file():
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 data = {}
-            cfg.update(data)
+            if isinstance(data, dict):
+                cfg.update(migrate(data))
         return cfg
 
     def update(self, data: dict) -> None:

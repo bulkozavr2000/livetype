@@ -81,6 +81,7 @@ class MicSource:
         self._stream = None
         self._resample: _Resampler | None = None
         self.finished = threading.Event()  # never set for a microphone
+        self.overflows = 0  # callbacks where PortAudio reported lost input (input_overflow)
 
     def start(self) -> None:
         import sounddevice as sd
@@ -97,8 +98,22 @@ class MicSource:
                 samplerate=rate, channels=1, dtype="float32", blocksize=int(rate * 0.032), device=self.device, callback=self._cb
             )
         self._stream.start()
+        self._log_opened()
+
+    def _log_opened(self) -> None:
+        """Once per session: what the microphone really gave us (no audio is logged)."""
+        s = self._stream
+        try:
+            latency = float(s.latency) * 1000
+        except (TypeError, ValueError):
+            latency = float("nan")
+        log.info("microphone opened: device=%s rate=%s Hz latency=%.0f ms block=%s%s",
+                 self.device if self.device is not None else "default", getattr(s, "samplerate", "?"), latency,
+                 getattr(s, "blocksize", "?"), " (resampled to 16 kHz)" if self._resample else "")
 
     def _cb(self, indata, frames, time_info, status) -> None:  # noqa: ANN001 (sounddevice callback)
+        if status and getattr(status, "input_overflow", False):
+            self.overflows += 1  # PortAudio dropped input: the recording has a gap here
         x = indata[:, 0].copy()
         self.q.put(self._resample(x) if self._resample else x)
 
@@ -107,6 +122,7 @@ class MicSource:
             self._stream.stop()
             self._stream.close()
             self._stream = None
+            log.info("microphone closed: input overflows=%d", self.overflows)
 
 
 class FileSource:
