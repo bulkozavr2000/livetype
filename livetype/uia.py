@@ -149,15 +149,23 @@ class TextField:
 
     def select(self, rng, timeout: float = 0.3) -> bool:
         """Select `rng` and wait until the field reports it: Chromium applies a selection made
-        through UI Automation asynchronously, and keystrokes sent too early land at the old place."""
+        through UI Automation asynchronously, and keystrokes sent too early land at the old place.
+        The same place may not compare equal in Chromium (the end of a text node vs. the start of
+        the next one), so a selection that does not compare equal is also checked by its offsets
+        in the field's text."""
         rng.Select()
+        want = None
         t_end = time.monotonic() + timeout
         while True:
             sel = self.selection()
             try:
-                if sel is not None and sel.CompareEndpoints(START, rng, START) == 0 \
-                        and sel.CompareEndpoints(END, rng, END) == 0:
-                    return True
+                if sel is not None:
+                    if sel.CompareEndpoints(START, rng, START) == 0 and sel.CompareEndpoints(END, rng, END) == 0:
+                        return True
+                    if want is None:
+                        want = self.offsets(rng)
+                    if self.offsets(sel) == want:
+                        return True
             except _ERRORS:
                 pass
             if time.monotonic() > t_end:
@@ -302,6 +310,15 @@ class Anchor:
                 self.after = field.context(caret, self.CTX, before=False)
             except _ERRORS as e:
                 log.debug("anchor context failed: %s", e)
+
+    @classmethod
+    def around(cls, field: TextField, raw: str, start: int, end: int) -> Anchor:
+        """An anchor for text already in the field at raw[start:end] (`raw` = the field's text):
+        found during the dictation rather than set up at its start."""
+        a = cls.__new__(cls)
+        a.field, a.text = field, raw[start:end]
+        a.head, a.after = raw[max(0, start - cls.CTX):start], raw[end:end + cls.CTX]
+        return a
 
     def locate(self) -> tuple[str, tuple[int, int] | None]:
         """The field's text and where our text is in it (None if it is gone)."""

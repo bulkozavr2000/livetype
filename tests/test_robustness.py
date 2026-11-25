@@ -110,6 +110,9 @@ class _Field:
     def same_as(self, el):
         return self.same
 
+    def has_focus(self):
+        return self.same  # the focused field is the dictation's own
+
     def selection(self):
         return None  # an empty field: nothing before or after the cursor
 
@@ -135,50 +138,58 @@ class _LostAnchor:
         return "", None, None  # our text is no longer found in the field
 
 
-def test_lost_place_goes_to_clipboard_not_keystrokes(monkeypatch):
-    typed, clip = [], []
+def _lost_typer(monkeypatch, field, typed, clip=None, ui=None):
+    """A Typer in UI Automation mode that typed "начало" and then lost track of it."""
     monkeypatch.setattr(win, "type_text", lambda t, *a, **k: typed.append(t))
-    monkeypatch.setattr(win, "set_clipboard", lambda t: clip.append(t))
+    monkeypatch.setattr(win, "set_clipboard", lambda t: (clip if clip is not None else []).append(t))
     monkeypatch.setattr(win, "window_process", lambda h: "notepad.exe")
+    monkeypatch.setattr(win, "foreground", lambda: 1)
+    monkeypatch.setattr(win, "modifiers_down", lambda: False)
+    monkeypatch.setattr(win, "focused_control", lambda h: 0)
+    t = Typer(config.Config(), 1, None, ui or _Ui(), lambda: None)
+    t.mode, t.anchor, t.uia = "uia", _LostAnchor(field), _Uia(field)
+    t.raw = t.goal = t.base = "начало"
+    t.covered, t.at_end = len(t.base), False  # the user moved the cursor
+    return t
+
+
+def test_lost_place_in_another_field_waits_and_only_undelivered_words_go_to_the_clipboard(monkeypatch):
+    typed, clip = [], []
     ui = _Ui()
-    t = Typer(config.Config(), 1, None, ui, lambda: None)
     # the cursor is in another field now (a search box...): typing there would be wrong
-    t.mode, t.anchor, t.uia = "uia", _LostAnchor(), _Uia(_Field(same=False))
-    t.base, t._user_moved = "начало ", True
-    t._type("и конец")
-    assert typed == [] and t.mode == "lost" and ui.notices
-    t._type(" ещё")
+    t = _lost_typer(monkeypatch, _Field(same=False), typed, clip, ui)
+    t.feed("add", " и конец")
+    t.step()
+    assert typed == [] and t.mode == "uia" and ui.notices  # no "lost" mode: the words wait
+    t.feed("add", " ещё")
+    t.step()
     assert typed == []
-    assert t._final("Начало и конец ещё.", "") == "clipboard_lost"
-    assert clip == ["Начало и конец ещё."]
+    t.feed("finish", "Начало и конец ещё.")
+    t.step()
+    assert t.conclude() == "undelivered"
+    assert clip == [" и конец ещё."]  # only what never reached the field, not the whole text
 
 
 def test_lost_place_in_the_same_field_goes_on_at_the_cursor(monkeypatch):
     typed = []
-    monkeypatch.setattr(win, "type_text", lambda t, *a, **k: typed.append(t))
-    monkeypatch.setattr(win, "window_process", lambda h: "notepad.exe")
-    t = Typer(config.Config(), 1, None, _Ui(), lambda: None)
     field = _Field()  # e.g. the message was sent and the composer is empty again
-    t.mode, t.anchor, t.uia = "uia", _LostAnchor(field), _Uia(field)
-    t.base, t._user_moved = "начало", True
-    t._type(" и конец")
+    t = _lost_typer(monkeypatch, field, typed)
+    t.feed("add", " и конец")
+    t.step()
     assert typed == ["и конец"] and t.mode == "uia"  # no leading space in an empty field
     assert t.base == "начало и конец" and t.base[t.seg_start:] == "и конец"
     assert t.anchor.field is field and t.anchor.text == "и конец" and t.at_end
-    t._type(" ещё")  # the next words simply follow at the cursor
+    t.feed("add", " ещё")
+    t.step()  # the next words simply follow at the cursor
     assert typed == ["и конец", " ещё"] and t.base[t.seg_start:] == "и конец ещё"
 
 
 def test_lost_place_never_types_over_a_selection(monkeypatch):
     typed = []
-    monkeypatch.setattr(win, "type_text", lambda t, *a, **k: typed.append(t))
-    monkeypatch.setattr(win, "window_process", lambda h: "notepad.exe")
-    t = Typer(config.Config(), 1, None, _Ui(), lambda: None)
-    field = _Field(selected="текст, который вы выделили")
-    t.mode, t.anchor, t.uia = "uia", _LostAnchor(field), _Uia(field)
-    t.base, t._user_moved = "начало", True
-    t._type(" и конец")
-    assert typed == [] and t.mode == "lost"
+    t = _lost_typer(monkeypatch, _Field(selected="текст, который вы выделили"), typed)
+    t.feed("add", " и конец")
+    t.step()
+    assert typed == [] and t.mode == "uia" and t.covered == len("начало")  # waits; never "lost"
 
 
 def test_terminal_detection(monkeypatch):

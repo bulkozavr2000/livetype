@@ -45,6 +45,14 @@ def test_merge_user_deleted_words():
     assert merge_user_edits(base, user, final) == "Это важно."
 
 
+def test_merge_never_glues_added_words_to_the_word_before():
+    # the user typed after our last word: the corrected word keeps its space before theirs
+    assert merge_user_edits("привет мир", "привет мир ой", "Привет, мир!") == "Привет, мир ой"
+    assert merge_user_edits("привет мир", "привет мир ой", "Привет мир") == "Привет мир ой"
+    # the final text adds a word at the end while the user changed another one
+    assert merge_user_edits("раз два", "Раз два", "раз два три") == "Раз два три"
+
+
 def test_common_affixes():
     assert common_affixes("abcXYZdef", "abcQdef") == (3, 3)
     assert common_affixes("aaa", "aaaa") == (3, 0)

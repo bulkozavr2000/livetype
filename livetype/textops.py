@@ -1,16 +1,165 @@
-"""Pure text helpers: joining live words, planning the final in-place fix, merging with the
-user's own edits, finding our text in a field's text, WER."""
+"""Pure text helpers: joining live words, planning in-place corrections (Backspace over the changed
+tail), merging with the user's own edits, finding our text in a field's text, WER."""
 
 from __future__ import annotations
 
 import difflib
 import re
+import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass
 
 from livetype.stabilizer import norm
 
 _TOKEN = re.compile(r"\S+\s*|\s+")
+
+# ------------------------------------------------------------------ text as it is typed
+# Enter sends a half-finished message in Claude, Telegram or Slack: while dictating, a line break
+# (from the engine or a language model's paragraphs) is typed as one space.
+_LINE_BREAKS = re.compile("[ \t]*(?:\r\n|[\r\n\u2028\u2029\x0b\x0c\x85])+[ \t]*")
+_BREAK = re.compile("[\r\n\u2028\u2029\x0b\x0c\x85]")
+
+
+def has_line_break(text: str) -> bool:
+    return _BREAK.search(text) is not None
+
+
+def one_line(text: str) -> str:
+    """`text` as it is typed while dictating: every run of line breaks becomes one space, and
+    the characters are in composed form (one code point for "ё"), so what Backspace deletes in
+    the field matches what we count."""
+    return unicodedata.normalize("NFC", _LINE_BREAKS.sub(" ", text))
+
+
+# ------------------------------------------------------------------ what one Backspace deletes
+# One Backspace deletes one user-perceived character (grapheme cluster): an emoji with its skin
+# tone or ZWJ family, a flag, a letter with its combining marks. A compact version of the Unicode
+# rules (UAX #29) for counting them.
+# Editors do not all agree on clusters of several code points: Chromium (the Claude app, browsers,
+# Electron) deletes a combining mark without its letter and an emoji sequence whole; older Windows
+# controls may delete an emoji sequence piece by piece. A tail holding such a cluster is therefore
+# marked editor_dependent and is not rewritten with Backspace. Text from speech recognition is in
+# composed form (one_line), so its letters are single code points.
+_ZWJ = 0x200D
+
+
+def _is_extend(cp: int) -> bool:
+    if cp in (0x200C, _ZWJ) or 0xFE00 <= cp <= 0xFE0F or 0xE0100 <= cp <= 0xE01EF:
+        return True  # joiners, variation selectors
+    if 0x1F3FB <= cp <= 0x1F3FF or 0xE0020 <= cp <= 0xE007F:
+        return True  # emoji skin tones, tag characters (subdivision flags)
+    return unicodedata.category(chr(cp)) in ("Mn", "Me", "Mc")
+
+
+def _is_regional(cp: int) -> bool:
+    return 0x1F1E6 <= cp <= 0x1F1FF
+
+
+def _is_pictographic(cp: int) -> bool:
+    return (0x1F000 <= cp <= 0x1FAFF or 0x2600 <= cp <= 0x27BF or 0x2300 <= cp <= 0x23FF
+            or 0x2B00 <= cp <= 0x2BFF or cp in (0x00A9, 0x00AE, 0x203C, 0x2049, 0x2122, 0x2139, 0x3030, 0x303D))
+
+
+def _hangul(cp: int) -> str:
+    if 0x1100 <= cp <= 0x115F or 0xA960 <= cp <= 0xA97C:
+        return "L"
+    if 0x1160 <= cp <= 0x11A7 or 0xD7B0 <= cp <= 0xD7C6:
+        return "V"
+    if 0x11A8 <= cp <= 0x11FF or 0xD7CB <= cp <= 0xD7FB:
+        return "T"
+    if 0xAC00 <= cp <= 0xD7A3:
+        return "LV" if (cp - 0xAC00) % 28 == 0 else "LVT"
+    return ""
+
+
+def grapheme_starts(text: str) -> list[int]:
+    """Indices where a grapheme cluster starts (the first is 0 for a non-empty text)."""
+    starts: list[int] = []
+    prev = -1  # previous code point
+    ri = 0  # regional indicators in a row
+    pict = False  # the current cluster started with a pictographic character
+    for i, ch in enumerate(text):
+        cp = ord(ch)
+        joined = False
+        if i > 0:
+            if prev == 0x0D and cp == 0x0A:
+                joined = True  # CR LF
+            elif prev in (0x0D, 0x0A):
+                joined = False
+            elif _is_extend(cp):
+                joined = True
+            elif prev == _ZWJ and pict and _is_pictographic(cp):
+                joined = True  # emoji ZWJ sequence
+            elif _is_regional(cp) and ri % 2 == 1:
+                joined = True  # the second half of a flag
+            else:
+                a, b = _hangul(prev), _hangul(cp)
+                joined = bool(a and b) and (
+                    (a == "L" and b in ("L", "V", "LV", "LVT"))
+                    or (a in ("LV", "V") and b in ("V", "T"))
+                    or (a in ("LVT", "T") and b == "T"))
+        if not joined:
+            starts.append(i)
+            pict = _is_pictographic(cp)
+            ri = 0
+        ri = ri + 1 if _is_regional(cp) else 0
+        prev = cp
+    return starts
+
+
+def graphemes(text: str) -> list[str]:
+    starts = grapheme_starts(text)
+    return [text[a:b] for a, b in zip(starts, starts[1:] + [len(text)])]
+
+
+@dataclass(frozen=True)
+class TailRewrite:
+    """Keystrokes that turn `old` (typed by us, caret right after it) into `new`: press Backspace
+    `backspaces` times over old[keep:] (one press per grapheme cluster), then type `insert`.
+
+    editor_dependent: old[keep:] holds a cluster of several code points (an emoji sequence, a
+    letter with a combining mark that has no composed form): how many presses delete it depends
+    on the editor, so the caller must not rely on `backspaces` there."""
+
+    keep: int
+    delete: str
+    backspaces: int
+    insert: str
+    editor_dependent: bool = False
+
+
+def plan_tail_rewrite(old: str, new: str) -> TailRewrite:
+    """Keep the common prefix and rewrite everything after it. The cut is moved back to the start
+    of a grapheme cluster in both texts: Backspace never takes half of a character with it, and
+    the typed text never starts with a combining mark or the second half of an emoji."""
+    p, m = 0, min(len(old), len(new))
+    while p < m and old[p] == new[p]:
+        p += 1
+    bounds_old = set(grapheme_starts(old)) | {len(old)}
+    bounds_new = set(grapheme_starts(new)) | {len(new)}
+    while p > 0 and (p not in bounds_old or p not in bounds_new):
+        p -= 1
+    delete = old[p:]
+    starts = grapheme_starts(delete)
+    return TailRewrite(keep=p, delete=delete, backspaces=len(starts), insert=new[p:],
+                       editor_dependent=len(starts) != len(delete))
+
+
+def remap(i: int, old: str, new: str) -> int:
+    """Where position `i` of `old` is in `new`, a corrected version of the same text: the start of
+    the first word of `new` that stands for a word after `i` (word alignment, like split_final)."""
+    if i <= 0:
+        return 0
+    if i >= len(old):
+        return len(new)
+    return len(split_final(old, i, new)[0])
+
+
+def common_suffix(a: str, b: str) -> int:
+    n, m = 0, min(len(a), len(b))
+    while n < m and a[-1 - n] == b[-1 - n]:
+        n += 1
+    return n
 
 
 def common_affixes(old: str, new: str) -> tuple[int, int]:
@@ -33,23 +182,28 @@ def merge_user_edits(base: str, user: str, final: str) -> str:
         return user
     b, u, f = _TOKEN.findall(base), _TOKEN.findall(user), _TOKEN.findall(final)
 
-    def ops(other: list[str]) -> list[tuple[int, int, list[str]]]:
-        # align by the bare word, then report case/punctuation changes as one-word replacements
+    def ws_end(tok: str) -> str:
+        return tok[len(tok.rstrip()):]
+
+    def ops(other: list[str]) -> list[tuple[int, int, list[str], str]]:
+        # align by the bare word, then report case/punctuation changes as one-word replacements;
+        # each op also carries the whitespace that came before it in `other`
         sm = difflib.SequenceMatcher(None, [norm(t) for t in b], [norm(t) for t in other], autojunk=False)
         res = []
         for tag, i1, i2, j1, j2 in sm.get_opcodes():
             if tag != "equal":
-                res.append((i1, i2, other[j1:j2]))
+                res.append((i1, i2, other[j1:j2], ws_end(other[j1 - 1]) if j1 else ""))
                 continue
             for k in range(i2 - i1):
-                if b[i1 + k].strip() != other[j1 + k].strip():
-                    res.append((i1 + k, i1 + k + 1, [other[j1 + k]]))
+                j = j1 + k
+                if b[i1 + k].strip() != other[j].strip():
+                    res.append((i1 + k, i1 + k + 1, [other[j]], ws_end(other[j - 1]) if j else ""))
         return res
 
     user_ops, fix_ops = ops(u), ops(f)
 
-    def clash(a: tuple[int, int, list[str]], c: tuple[int, int, list[str]]) -> bool:
-        (a1, a2, _), (c1, c2, _) = a, c
+    def clash(a: tuple, c: tuple) -> bool:
+        (a1, a2), (c1, c2) = a[:2], c[:2]
         if a1 == a2 and c1 == c2:
             return a1 == c1
         if a1 == a2:
@@ -63,15 +217,18 @@ def merge_user_edits(base: str, user: str, final: str) -> str:
     for op in fix_ops:
         if any(clash(op, uo) for uo in user_ops):
             continue
-        i1, i2, rep = op
+        i1, i2, rep, ws = op
         if rep and i2 > i1 and any(uo[0] == i2 for uo in user_ops):
             # the user changed what follows: don't add punctuation that belonged to that context
             rm, bm = trail.search(rep[-1]), trail.search(b[i2 - 1])
             rep = [*rep[:-1], rep[-1][: rm.start()] + bm.group(1) + rm.group(2)]
-        accepted.append((i1, i2, rep))
+        accepted.append((i1, i2, rep, ws))
     out, pos = [], 0
-    for i1, i2, rep in sorted(user_ops + accepted, key=lambda o: (o[0], o[1])):
-        out += b[pos:i1] + rep
+    for i1, i2, rep, ws in sorted(user_ops + accepted, key=lambda o: (o[0], o[1])):
+        out += b[pos:i1]
+        if rep and ws and out and not out[-1][-1:].isspace() and not rep[0][:1].isspace():
+            out[-1] += ws  # added words: the space before them belonged to the word before
+        out += rep
         pos = i2
     out += b[pos:]
     return re.sub(r" {2,}", " ", "".join(out))

@@ -87,6 +87,11 @@ class Config:
     after_user_edit: str = "end"  # fields without UI Automation: "end" (Ctrl+End) or "caret"
     user_idle_s: float = 0.8  # wait this long after your own typing/clicks before continuing
 
+    # typer and text processing (0.3)
+    rewrite_max_chars: int = 250  # longest tail corrected with Backspace + retyping (no UI Automation)
+    undelivered_wait_s: float = 8.0  # at stop, wait this long for the dictation's window to come back
+    llm_idle_stop_s: float = 300.0  # stop the language-model server after this long unused
+
     @property
     def final_pass(self) -> bool:  # name used by the engine
         return self.final_check

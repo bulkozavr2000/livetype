@@ -95,18 +95,51 @@ def _send(inputs: list[INPUT], batch: int = 96, pause: float = 0.003) -> None:
             time.sleep(pause)
 
 
-def type_text(text: str, extra: int = MAGIC) -> None:
-    """Type any Unicode text into the focused field, independent of keyboard layout."""
+_LINE_BREAK_CHARS = "\r\n\u2028\u2029\x0b\x0c\x85"
+REWRITE_BATCH_CHARS = 600  # typed text that goes into the one atomic correction batch
+
+
+def _text_events(text: str, extra: int = MAGIC) -> list[INPUT]:
+    """Key events that type `text` as Unicode characters. A line break is never sent as Enter
+    (that would send a half-finished message in a chat): it becomes a space."""
     seq: list[INPUT] = []
+    prev_break = False
     for ch in text:
-        if ch == "\n":
-            seq += [_key(VK_RETURN, extra=extra), _key(VK_RETURN, up=True, extra=extra)]
-            continue
+        if ch in _LINE_BREAK_CHARS:
+            if prev_break:  # "\r\n" and runs of breaks: one space
+                continue
+            prev_break, ch = True, " "
+        else:
+            prev_break = False
         data = ch.encode("utf-16-le")
         for k in range(0, len(data), 2):
             cu = int.from_bytes(data[k : k + 2], "little")
             seq += [_unicode(cu, extra=extra), _unicode(cu, up=True, extra=extra)]
-    _send(seq)
+    return seq
+
+
+def type_text(text: str, extra: int = MAGIC) -> None:
+    """Type any Unicode text into the focused field, independent of keyboard layout."""
+    _send(_text_events(text, extra))
+
+
+def rewrite_events(backspaces: int, text: str, extra: int = MAGIC) -> list[INPUT]:
+    seq: list[INPUT] = []
+    for _ in range(max(0, backspaces)):
+        seq += [_key(VK_BACK, extra=extra), _key(VK_BACK, up=True, extra=extra)]
+    return seq + _text_events(text, extra)
+
+
+def rewrite(backspaces: int, text: str, extra: int = MAGIC) -> None:
+    """Delete `backspaces` characters before the caret and type `text`, in ONE SendInput call:
+    the system never puts the user's own keystrokes in the middle of it. Very long text is
+    finished by ordinary typing (the target's message queue holds about 10 000 messages)."""
+    head, rest = text[:REWRITE_BATCH_CHARS], text[REWRITE_BATCH_CHARS:]
+    seq = rewrite_events(backspaces, head, extra)
+    if seq:
+        _send(seq, batch=len(seq), pause=0)
+    if rest:
+        type_text(rest, extra)
 
 
 def press(vk: int, times: int = 1, *, shift: bool = False, ctrl: bool = False, extra: int = MAGIC) -> None:
@@ -190,15 +223,7 @@ def foreground() -> int:
 
 def is_own_window(hwnd: int) -> bool:
     """True if the window belongs to this LiveType process (never type into ourselves)."""
-    if not hwnd:
-        return False
-    pid = wintypes.DWORD()
-    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-    own = {kernel32.GetCurrentProcessId()}
-    ui_pid = os.environ.get("LIVETYPE_UI_PID", "")  # the Electron UI that started this engine
-    if ui_pid.isdigit():
-        own.add(int(ui_pid))
-    return pid.value in own
+    return bool(hwnd) and window_pid(hwnd) in own_pids()
 
 
 def focused_control(hwnd: int) -> int:
@@ -219,6 +244,38 @@ def window_class(hwnd: int) -> str:
     buf = ctypes.create_unicode_buffer(256)
     user32.GetClassNameW(hwnd, buf, 256)
     return buf.value
+
+
+def window_pid(hwnd: int) -> int:
+    if not hwnd:
+        return 0
+    pid = wintypes.DWORD()
+    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    return pid.value
+
+
+def own_pids() -> set[int]:
+    """This process and the Electron UI that started it."""
+    own = {kernel32.GetCurrentProcessId()}
+    ui_pid = os.environ.get("LIVETYPE_UI_PID", "")
+    if ui_pid.isdigit():
+        own.add(int(ui_pid))
+    return own
+
+
+GA_ROOT = 2
+user32.WindowFromPoint.argtypes = (wintypes.POINT,)
+user32.WindowFromPoint.restype = wintypes.HWND
+user32.GetAncestor.argtypes = (wintypes.HWND, wintypes.UINT)
+user32.GetAncestor.restype = wintypes.HWND
+
+
+def window_at(x: int, y: int) -> tuple[int, int]:
+    """(top-level window, process id) under a screen point; (0, 0) if there is none."""
+    h = user32.WindowFromPoint(wintypes.POINT(x, y))
+    if not h:
+        return 0, 0
+    return user32.GetAncestor(h, GA_ROOT) or h, window_pid(h)
 
 
 def window_process(hwnd: int) -> str:
@@ -376,6 +433,7 @@ class HotkeyThread(_LoopThread):
 WH_KEYBOARD_LL, WH_MOUSE_LL = 13, 14
 WM_KEYDOWN, WM_SYSKEYDOWN = 0x0100, 0x0104
 WM_BUTTONDOWNS = {0x0201, 0x0204, 0x0207, 0x020B}  # L, R, M, X
+LLKHF_INJECTED, LLMHF_INJECTED = 0x10, 0x01
 
 
 class KBDLLHOOKSTRUCT(ctypes.Structure):
@@ -408,16 +466,43 @@ kernel32.GetModuleHandleW.argtypes = (wintypes.LPCWSTR,)
 kernel32.GetModuleHandleW.restype = wintypes.HMODULE
 
 
-class InputWatcher(_LoopThread):
-    """Counts the user's own key presses and mouse clicks. Our tagged keystrokes,
-    modifier keys and the dictation hotkey itself are ignored."""
+def key_held(vk: int) -> bool:
+    return bool(user32.GetAsyncKeyState(vk) & 0x8000)
 
-    def __init__(self, ignore_vks: set[int] | None = None):
+
+def hotkey_parts(spec: str | None) -> tuple[list[tuple[int, ...]], tuple[int, ...]]:
+    """The hotkey's modifier groups (any key of a group will do) and its main key(s); nothing for
+    no spec or a bad one."""
+    if not spec:
+        return [], ()
+    from livetype import keyhook
+
+    try:
+        return keyhook.parse(spec)
+    except ValueError:
+        return [], ()
+
+
+class InputWatcher(_LoopThread):
+    """Counts the user's own input in the dictation's window: key presses while it is in front
+    and clicks inside it. Not counted: our own injected keystrokes (injected flag + our tag),
+    the dictation hotkey (its main key while its modifiers are held: with Ctrl+Alt+D, a plain D
+    is the user's typing), bare modifier presses, keys typed into another window and clicks in
+    other windows."""
+
+    def __init__(self, ignore_vks: set[int] | None = None, target: int = 0, hotkey: str | None = None,
+                 held: Callable[[int], bool] | None = None):
         super().__init__("input-watcher")
-        self.ignore = set(ignore_vks or ()) | MODIFIER_VKS
+        self.ignore = set(ignore_vks or ()) | MODIFIER_VKS  # never the user's typing
+        self.hotkey_mods, self.hotkey_main = hotkey_parts(hotkey)
+        self.held = held or key_held
+        self.target = target  # 0: every key and click counts
+        self.target_pid = window_pid(target) if target else 0
+        self.own = own_pids()
         self.count = 0
         self.last_time = 0.0
         self.last_kind = ""
+        self.skipped = 0  # input that was not the user's in the target (diagnostics)
         self._procs = (HOOKPROC(self._on_key), HOOKPROC(self._on_mouse))  # keep refs alive
 
     def _mark(self, kind: str) -> None:
@@ -425,18 +510,49 @@ class InputWatcher(_LoopThread):
         self.last_time = time.monotonic()
         self.last_kind = kind
 
+    def is_hotkey(self, vk: int) -> bool:
+        """The dictation hotkey's main key, pressed with the hotkey's modifiers (the low-level
+        hook sees it before the hotkey listener swallows it)."""
+        return vk in self.hotkey_main and all(any(self.held(v) for v in g) for g in self.hotkey_mods)
+
+    def key_is_user(self, vk: int, flags: int, extra: int) -> bool:
+        if flags & LLKHF_INJECTED and extra == MAGIC:
+            return False  # our own keystrokes
+        if vk in self.ignore or self.is_hotkey(vk):
+            return False  # a modifier alone, the dictation hotkey
+        return not self.target or foreground() == self.target
+
+    def click_is_user(self, flags: int, extra: int, x: int, y: int) -> bool:
+        if flags & LLMHF_INJECTED and extra == MAGIC:
+            return False
+        if not self.target:
+            return True
+        root, pid = window_at(x, y)
+        if not root or root == self.target or pid == self.target_pid:
+            return True
+        # our own overlays let clicks through to the window below them: count those
+        return pid in self.own
+
     def _on_key(self, code: int, wparam: int, lparam: int) -> int:
         if code == 0 and wparam in (WM_KEYDOWN, WM_SYSKEYDOWN):
             k = ctypes.cast(lparam, ctypes.POINTER(KBDLLHOOKSTRUCT)).contents
-            if k.dwExtraInfo != MAGIC and k.vkCode not in self.ignore:
+            if self.key_is_user(k.vkCode, k.flags, k.dwExtraInfo):
                 self._mark("key")
+            else:
+                self.skipped += 1
         return user32.CallNextHookEx(None, code, wparam, lparam)
 
     def _on_mouse(self, code: int, wparam: int, lparam: int) -> int:
         if code == 0 and wparam in WM_BUTTONDOWNS:
             m = ctypes.cast(lparam, ctypes.POINTER(MSLLHOOKSTRUCT)).contents
-            if m.dwExtraInfo != MAGIC:
+            try:
+                user = self.click_is_user(m.flags, m.dwExtraInfo, m.pt.x, m.pt.y)
+            except Exception:
+                user = True  # never miss a click because of a lookup error
+            if user:
                 self._mark("click")
+            else:
+                self.skipped += 1
         return user32.CallNextHookEx(None, code, wparam, lparam)
 
     def run(self) -> None:
