@@ -5,10 +5,13 @@ types the text. This engine does the same, only piece by piece: the recording is
 into segments of a few seconds, every finished segment goes to the same recognizer at once (in the
 background, listening goes on) and its text is typed as soon as it is ready.
 
-At stop (final_check on) the whole recording goes to the same recognizer once more, exactly as Type
-does when you press the key, and finish() returns that text: the typer puts it in place of what was
-typed (a pause the model took for the end of a sentence is only known once you have finished).
-Without final_check only the last segment is recognized and typed.
+At stop the last segment is recognized and typed. With final_check the whole recording then goes
+to the same recognizer once more, as Type does when you press the key, and finish() returns the typed
+words with the punctuation and capital letters of that whole-recording text (punctuate_from); the
+typer puts it in place of what was typed. A pause the model took for the end of a sentence is only
+known once you have finished; the words stay those of the segments, which are recognized better
+(24 test dictations, word errors clean/laptop: segments 5.5%/15.7%, whole recording 5.4%/17.7%;
+extra periods: segments 9/14, whole recording and this mix 5/7).
 
 Where a segment closes (VAD = Silero, frames of 32 ms):
   * after segment_min_s, at the first pause of segment_pause_s;
@@ -22,7 +25,9 @@ Contract for the typer (callbacks run on the thread that calls feed/poll/finish,
 
 from __future__ import annotations
 
+import difflib
 import logging
+import re
 import time
 from collections import deque
 from collections.abc import Callable
@@ -40,6 +45,25 @@ PREROLL_S = 0.3  # audio kept before the first speech of a segment
 TAIL_S = 0.25  # at most this much of a pause stays at the end of a segment
 SHORT_PAUSE_S = 0.2
 HARD_CUT_SEARCH_S = 2.0
+
+
+def _word(token: str) -> str:
+    return re.sub(r"[^\w]", "", token.lower().replace("ё", "е"))
+
+
+def punctuate_from(words_text: str, punct_text: str) -> str:
+    """The words of `words_text` with the punctuation and capital letters of `punct_text`:
+    where both texts have the same words, the token of `punct_text` is taken (its marks and case);
+    where they differ, the tokens of `words_text` are kept."""
+    w, p = words_text.split(), punct_text.split()
+    out: list[str] = []
+    ops = difflib.SequenceMatcher(None, [_word(t) for t in w], [_word(t) for t in p], autojunk=False).get_opcodes()
+    for op, a1, a2, b1, b2 in ops:
+        out += p[b1:b2] if op == "equal" else w[a1:a2]
+    if out and w and out[-1][-1:] in ",;:":  # the word after that comma was dropped: end as the typed text ends
+        end = re.search(r"[.!?…]+$", w[-1])
+        out[-1] = out[-1].rstrip(",;:") + (end.group(0) if end else "")
+    return " ".join(out)
 
 
 class _Buffer:
@@ -207,37 +231,29 @@ class SegmentEngine:
             self._deliver(a, b, job)
 
     def finish(self, budget_s: float | None = None) -> str:
-        """Type everything recognized so far, then return the final text: the whole recording
-        recognized again (final_check), else the typed text with the last segment added.
+        """Recognize and type the last segment, then return the final text: the typed words with
+        the punctuation of the whole recording recognized again (final_check), else the typed text.
         Like Type, it waits for the recognizer (budget_s is ignored: quality first)."""
         t0 = time.monotonic()
-        tail = None
         if self.seg_speech:
             end = min(self.audio.size, self.last_speech_end + self._s(TAIL_S))
             if end > self.seg_start:
-                tail = (self.seg_start, end)
                 self.segments.append({"a": self.seg_start / SAMPLE_RATE, "b": end / SAMPLE_RATE, "forced": False})
+                self._submit(self.seg_start, end)
             self.seg_speech = False
-        final = None
-        if self.cfg.final_check and self.segments:
-            self._drain()  # the segments already sent are typed while the whole recording is recognized
+        self._drain()
+        final = self._text
+        if self.cfg.final_check and self.segments and final.strip():
             a = int(self.segments[0]["a"] * SAMPLE_RATE)
             b = int(self.segments[-1]["b"] * SAMPLE_RATE)
             t = time.perf_counter()
             try:
-                final = self.rec.text(self.audio.view(a, b).copy())
+                whole = self.rec.text(self.audio.view(a, b).copy())
+                if whole.strip():
+                    final = punctuate_from(self._text, whole)
             except Exception:
-                log.exception("final pass failed")
+                log.exception("final pass failed, keeping the typed text")
             self.stop_info["final_s"] = round(time.perf_counter() - t, 3)
-            if final is not None and len(final.split()) < 0.7 * len(self._text.split()):
-                log.info("final pass dropped words (%d < %d), keeping the typed text",
-                         len(final.split()), len(self._text.split()))
-                final = None
-        if final is None or not final.strip():
-            if tail is not None:
-                self._submit(*tail)
-            self._drain()
-            final = self._text
         self.stop_info.update({"stop_s": round(time.monotonic() - t0, 3), "segments": len(self.segments)})
         return final
 

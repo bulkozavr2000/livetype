@@ -151,32 +151,35 @@ def test_failed_segment_does_not_stop_the_rest():
 
 class WholeAsr(SpanAsr):
     """Segments get one word per speech span; a recording with more than one span is the
-    whole-recording pass and gets its own marked text."""
+    whole-recording pass and gets the text made by `whole(words)`."""
 
-    def __init__(self, whole: str):
+    def __init__(self, whole):
         super().__init__()
         self.whole = whole
 
     def text(self, audio):
         words = super().text(audio).split()
-        return self.whole if len(words) > 2 else " ".join(words)
+        return self.whole(words) if len(words) > 2 else " ".join(words)
 
 
-def test_final_pass_recognizes_the_whole_recording():
-    plan = [("q", 0.5), ("s", 2.2), ("q", 0.6), ("s", 2.2), ("q", 0.6), ("s", 0.8), ("q", 0.3)]
-    eng, typed, final, asr = run(plan, Config(), WholeAsr("Один, два, три."))
-    assert final == "Один, два, три."
-    assert "".join(typed).split() == ["w35200", "w35200"]  # the last segment is left to the final pass
+PLAN3 = [("q", 0.5), ("s", 2.2), ("q", 0.6), ("s", 2.2), ("q", 0.6), ("s", 0.8), ("q", 0.3)]
+
+
+def test_final_pass_takes_punctuation_from_the_whole_recording():
+    asr = WholeAsr(lambda w: f"{w[0].upper()}, {w[1]} {w[2]}.")
+    eng, typed, final, asr = run(PLAN3, Config(), asr)
+    assert "".join(typed) == "w35200 w35200 w12800"  # every segment is typed, the last one too
+    assert final == "W35200, w35200 w12800."
     whole = asr.calls[-1]
     assert abs(whole - (0.3 + 2.2 + 0.6 + 2.2 + 0.6 + 0.8 + 0.25)) < 0.1  # from the first speech to the end
     assert eng.stop_info["final_s"] >= 0
 
 
-def test_final_pass_that_drops_words_is_not_used():
-    plan = [("s", 2.2), ("q", 0.6), ("s", 2.2), ("q", 0.6), ("s", 2.2), ("q", 0.6), ("s", 0.8), ("q", 0.3)]
-    eng, typed, final, _ = run(plan, Config(), WholeAsr("Один."))
-    assert final.split() == ["w35200", "w35200", "w35200", "w12800"]  # typed text, last segment added
-    assert "".join(typed) == final
+def test_final_pass_keeps_the_words_of_the_segments():
+    # the whole-recording pass hears one word differently and drops another: the segment words stay
+    asr = WholeAsr(lambda w: f"{w[0].upper()}, other.")
+    _, _, final, _ = run(PLAN3, Config(), asr)
+    assert final == "W35200, w35200 w12800"
 
 
 def test_final_pass_failure_keeps_the_typed_text():
@@ -186,7 +189,15 @@ def test_final_pass_failure_keeps_the_typed_text():
                 raise RuntimeError("boom")
             return super().text(audio)
 
-    plan = [("s", 2.2), ("q", 0.6), ("s", 2.2), ("q", 0.6), ("s", 0.8), ("q", 0.3)]
-    _, typed, final, _ = run(plan, Config(), Broken())
+    _, typed, final, _ = run(PLAN3, Config(), Broken())
     assert final.split() == ["w35200", "w35200", "w12800"]
     assert "".join(typed) == final
+
+
+def test_punctuate_from():
+    from livetype.segment_engine import punctuate_from
+
+    assert punctuate_from("Я хотел сказать. Что завтра приду.", "я хотел сказать, что завтра приду") ==         "я хотел сказать, что завтра приду"
+    assert punctuate_from("Я хотел сказать. Что завтра приду.", "Я хотел сказать, что завтра пойду.") ==         "Я хотел сказать, что завтра приду."
+    assert punctuate_from("Ёлка стоит.", "Елка стоит, да.") == "Елка стоит."
+    assert punctuate_from("один два", "") == "один два"
