@@ -381,7 +381,7 @@ async function main() {
     /* ignore */
   }
 
-  // 15. an engine that keeps crashing: 3 restarts, then «Не удалось запустить» + «Повторить» and a toast
+  // 15. an engine that keeps crashing: 3 restarts, then «Не удалось запустить» + «Повторить» in the panel, no pop-up
   await sleep(800);
   const ui2 = spawn(ELECTRON, [UI, "--mock", "--mock-crash-after=0.2", `--remote-debugging-port=${PORT}`], { stdio: "ignore" });
   const ui2Exit = new Promise((resolve) => ui2.once("exit", (c) => resolve(c)));
@@ -390,13 +390,11 @@ async function main() {
   check("crashing engine: restarted 3 times, then failed", failed);
   await sleep(550);
   const errToast = await desk.info(T.toast);
-  check("error toast shown", errToast.visible);
-  if (errToast.visible) await desk.grab("ui_toast_error.png", pad(errToast.rect, 4));
+  check("no pop-up when the engine fails", !errToast.visible);
   const failText = await panel2.eval(
     '[document.getElementById("headline-title").textContent, !!document.querySelector("#headline-desc .retry")]'
   );
   check("panel offers «Повторить»", failText[0] === "Не удалось запустить" && failText[1], failText);
-  await waitFor(async () => !(await desk.info(T.toast)).visible, 6000);
   await desk.grab("ui_panel_failed.png", await panelBox());
   panel2.eval("window.livetype.quitApp()").catch(() => {});
   const code2 = await Promise.race([ui2Exit, sleep(8000).then(() => "timeout")]);

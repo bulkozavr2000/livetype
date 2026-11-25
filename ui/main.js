@@ -21,14 +21,26 @@ const PROJECT_ROOT = path.resolve(__dirname, "..");
 const APP_ID = "com.livetype.app";
 
 // Same rule as the engine (livetype/config.py): LIVETYPE_HOME > %APPDATA%\LiveType\home.txt > %LOCALAPPDATA%\LiveType
+const DATA_DIR_NOTES = []; // why a pointer was not used (written to the log at start)
 function resolveDataDir() {
   if (process.env.LIVETYPE_HOME) return process.env.LIVETYPE_HOME;
+  // %APPDATA% from the environment and from Windows itself (a launch from Explorer must find the
+  // same folder as any other launch, or two copies run side by side)
+  const roots = [process.env.APPDATA];
   try {
-    const pointer = path.join(process.env.APPDATA || "", "LiveType", "home.txt");
-    const text = fs.readFileSync(pointer, "utf8").trim();
-    if (text) return text;
+    roots.push(app.getPath("appData"));
   } catch {
-    /* no pointer */
+    /* not available */
+  }
+  for (const root of [...new Set(roots.filter(Boolean))]) {
+    const pointer = path.join(root, "LiveType", "home.txt");
+    try {
+      const text = fs.readFileSync(pointer, "utf8").replace(/^﻿/, "").trim();
+      if (text) return text;
+      DATA_DIR_NOTES.push(`${pointer}: empty`);
+    } catch (error) {
+      DATA_DIR_NOTES.push(`${pointer}: ${error.code || error.message}`);
+    }
   }
   return path.join(process.env.LOCALAPPDATA || app.getPath("appData"), "LiveType");
 }
@@ -283,7 +295,6 @@ function createEngine() {
 
 function onEngineStatus(status, info) {
   log(`engine status: ${status} ${JSON.stringify(info || {})}`);
-  const wasReady = state.ready;
   state.engine = status;
   state.engineInfo = info || {};
   if (status !== "running") {
@@ -294,18 +305,7 @@ function onEngineStatus(status, info) {
     state.pendingModel = null;
     if (state.dictation !== "idle") setDictation("idle", null);
   }
-  if (status === "failed") {
-    const panelOpen = panelWin && !panelWin.isDestroyed() && panelWin.isVisible();
-    showToast({
-      title: "Распознавание не запустилось",
-      body: panelOpen
-        ? "Нажмите «Повторить» в панели управления."
-        : "Откройте панель управления и нажмите «Повторить».",
-      kind: "error",
-    });
-  } else if (status === "restarting" && wasReady) {
-    showToast({ title: "Перезапускаю распознавание", body: "Движок остановился, запускаю заново.", kind: "warning" });
-  }
+  // no pop-ups (the panel shows the engine state and «Повторить»)
   syncOverlays();
   broadcast();
 }
@@ -861,6 +861,7 @@ async function quitApp() {
 
 function onReady() {
   log(`LiveType UI ${UI_VERSION} start${IS_MOCK ? " (mock engine)" : ""}, electron ${process.versions.electron}`);
+  log(`data folder ${DATA_DIR}${DATA_DIR_NOTES.length ? ` (${DATA_DIR_NOTES.join("; ")})` : ""}`);
   app.setAppUserModelId(APP_ID);
   windowIcon = icons.windowIcon(nativeImage);
   loadCache();
