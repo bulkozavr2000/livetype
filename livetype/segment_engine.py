@@ -3,8 +3,12 @@
 Type records, and when you press the key again it recognizes the recording with its model and
 types the text. This engine does the same, only piece by piece: the recording is cut at pauses
 into segments of a few seconds, every finished segment goes to the same recognizer at once (in the
-background, listening goes on) and its text is typed as soon as it is ready. A typed segment is
-never changed. At stop only the last segment is left to recognize.
+background, listening goes on) and its text is typed as soon as it is ready.
+
+At stop (final_check on) the whole recording goes to the same recognizer once more, exactly as Type
+does when you press the key, and finish() returns that text: the typer puts it in place of what was
+typed (a pause the model took for the end of a sentence is only known once you have finished).
+Without final_check only the last segment is recognized and typed.
 
 Where a segment closes (VAD = Silero, frames of 32 ms):
   * after segment_min_s, at the first pause of segment_pause_s;
@@ -193,16 +197,7 @@ class SegmentEngine:
             self.on_commit(delta)
 
     # ---------------------------------------------------------------- stop
-    def finish(self, budget_s: float | None = None) -> str:
-        """Recognize the last segment, type everything still pending, return the whole text.
-        Like Type, it waits for the recognizer (budget_s is ignored: quality first)."""
-        t0 = time.monotonic()
-        if self.seg_speech:
-            end = min(self.audio.size, self.last_speech_end + self._s(TAIL_S))
-            if end > self.seg_start:
-                self.segments.append({"a": self.seg_start / SAMPLE_RATE, "b": end / SAMPLE_RATE, "forced": False})
-                self._submit(self.seg_start, end)
-            self.seg_speech = False
+    def _drain(self) -> None:
         while self._jobs:
             a, b, job = self._jobs.popleft()
             try:
@@ -210,8 +205,41 @@ class SegmentEngine:
             except Exception:
                 pass
             self._deliver(a, b, job)
-        self.stop_info = {"stop_s": round(time.monotonic() - t0, 3), "segments": len(self.segments)}
-        return self._text
+
+    def finish(self, budget_s: float | None = None) -> str:
+        """Type everything recognized so far, then return the final text: the whole recording
+        recognized again (final_check), else the typed text with the last segment added.
+        Like Type, it waits for the recognizer (budget_s is ignored: quality first)."""
+        t0 = time.monotonic()
+        tail = None
+        if self.seg_speech:
+            end = min(self.audio.size, self.last_speech_end + self._s(TAIL_S))
+            if end > self.seg_start:
+                tail = (self.seg_start, end)
+                self.segments.append({"a": self.seg_start / SAMPLE_RATE, "b": end / SAMPLE_RATE, "forced": False})
+            self.seg_speech = False
+        final = None
+        if self.cfg.final_check and self.segments:
+            self._drain()  # the segments already sent are typed while the whole recording is recognized
+            a = int(self.segments[0]["a"] * SAMPLE_RATE)
+            b = int(self.segments[-1]["b"] * SAMPLE_RATE)
+            t = time.perf_counter()
+            try:
+                final = self.rec.text(self.audio.view(a, b).copy())
+            except Exception:
+                log.exception("final pass failed")
+            self.stop_info["final_s"] = round(time.perf_counter() - t, 3)
+            if final is not None and len(final.split()) < 0.7 * len(self._text.split()):
+                log.info("final pass dropped words (%d < %d), keeping the typed text",
+                         len(final.split()), len(self._text.split()))
+                final = None
+        if final is None or not final.strip():
+            if tail is not None:
+                self._submit(*tail)
+            self._drain()
+            final = self._text
+        self.stop_info.update({"stop_s": round(time.monotonic() - t0, 3), "segments": len(self.segments)})
+        return final
 
     def close(self) -> None:
         if not self._closed:

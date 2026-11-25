@@ -4,7 +4,11 @@ Type keeps its recognizer in a native Node module (resources/bin/gigatype_runtim
 speech model in resources/gigatype-model. We run exactly that module with exactly that model, the
 same way Type's own worker does (open with features ["llm_off"], startRecording, pushAudio,
 stopRecording, the text arrives in onAsrText), in a small Node process: Electron's own binary with
-ELECTRON_RUN_AS_NODE=1. Nothing of Type is copied or changed; its files are only read.
+ELECTRON_RUN_AS_NODE=1. The module needs only Windows' own DLLs.
+
+LiveType keeps its own copy of these two things in <data folder>	ype-runtimeesources (made once,
+from Type's installation, on the first start that finds Type), so it keeps working after Type is
+removed. Type's own files are never changed.
 
 TypeAsr.text(audio) -> the text Type would type for that audio.
 """
@@ -76,13 +80,49 @@ async function handle(line) {
 """
 
 
+LOCAL = DATA_DIR / "type-runtime" / "resources"  # LiveType's own copy
+ADDON = Path("bin") / "gigatype_runtime.node"
+MODEL = Path("gigatype-model")
+
+
+def _complete(base: Path) -> bool:
+    return (base / ADDON).is_file() and (base / MODEL / "asr").is_dir() and (base / MODEL / "core.tar").is_file()
+
+
+def installed_type() -> Path | None:
+    """Type's resources folder if Type is installed."""
+    base = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Type" / "resources"
+    return base if _complete(base) else None
+
+
+def ensure_local_copy() -> bool:
+    """Copy Type's recognizer module and model into LiveType's data folder once. True if the copy is there."""
+    if _complete(LOCAL):
+        return True
+    src = installed_type()
+    if src is None:
+        return False
+    import shutil
+    tmp = LOCAL.with_name("resources.tmp")
+    shutil.rmtree(tmp, ignore_errors=True)
+    (tmp / ADDON.parent).mkdir(parents=True)
+    shutil.copy2(src / ADDON, tmp / ADDON)
+    shutil.copytree(src / MODEL, tmp / MODEL)
+    shutil.rmtree(LOCAL, ignore_errors=True)
+    tmp.rename(LOCAL)
+    log.info("copied Type's recognizer and model to %s", LOCAL)
+    return _complete(LOCAL)
+
+
 def type_dir() -> Path | None:
-    """Type's resources folder if Type is installed (its recognizer module and model are there)."""
+    """Where the recognizer module and model are: LIVETYPE_TYPE_RESOURCES, LiveType's own copy,
+    else Type's installation."""
     env = os.environ.get("LIVETYPE_TYPE_RESOURCES")
-    base = Path(env) if env else Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Type" / "resources"
-    if (base / "bin" / "gigatype_runtime.node").is_file() and (base / "gigatype-model" / "asr").is_dir():
-        return base
-    return None
+    if env:
+        return Path(env) if _complete(Path(env)) else None
+    if _complete(LOCAL):
+        return LOCAL
+    return installed_type()
 
 
 def node_exe() -> Path | None:
@@ -113,11 +153,15 @@ class TypeAsr:
     """Type's recognizer in a Node process. text() is thread-safe (one request at a time)."""
 
     def __init__(self, timeout_s: float = 90.0):
+        try:
+            ensure_local_copy()
+        except OSError:
+            log.exception("could not copy Type's recognizer, using it from Type's folder")
         res, node = type_dir(), node_exe()
         if res is None or node is None:
-            raise RuntimeError("Type is not installed" if res is None else "no Node runtime")
+            raise RuntimeError("no copy of Type's recognizer" if res is None else "no Node runtime")
         root = DATA_DIR / "type-runtime"
-        model = res / "gigatype-model"
+        model = res / MODEL
         meta = {"release_id": RELEASE_ID, "core": str(model / "core.tar"),
                 "parts": {"asr": str(model / "asr"), "llm_passthrough": str(model / "llm_passthrough")}}
         _write_if_changed(root / "meta.json", json.dumps(meta, ensure_ascii=False, indent=2))
@@ -125,7 +169,7 @@ class TypeAsr:
         _write_if_changed(script, SIDECAR_JS)
         env = {**os.environ, "ELECTRON_RUN_AS_NODE": "1"}
         self._proc = subprocess.Popen(
-            [str(node), str(script), str(res / "bin" / "gigatype_runtime.node"), str(root)],
+            [str(node), str(script), str(res / ADDON), str(root)],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )

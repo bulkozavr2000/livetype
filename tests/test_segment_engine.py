@@ -50,8 +50,14 @@ def audio_of(plan: list[tuple[str, float]]) -> np.ndarray:
     return np.concatenate(parts)
 
 
+def no_final() -> Config:
+    cfg = Config()
+    cfg.final_check = False
+    return cfg
+
+
 def run(plan, cfg=None, asr=None, poll=True):
-    cfg = cfg or Config()
+    cfg = cfg or no_final()
     asr = asr or SpanAsr()
     typed: list[str] = []
     eng = SegmentEngine(cfg, None, LevelVad(), asr, on_commit=typed.append)
@@ -81,7 +87,7 @@ def test_short_phrase_waits_for_min_length():
 
 
 def test_soft_max_takes_a_short_pause():
-    cfg = Config()
+    cfg = no_final()
     # speech with only 0.25 s gaps: no cut at 0.4 s pauses; after soft max a 0.25 s gap closes it
     plan = []
     for _ in range(6):
@@ -94,7 +100,7 @@ def test_soft_max_takes_a_short_pause():
 
 
 def test_no_pause_is_cut_at_max():
-    cfg = Config()
+    cfg = no_final()
     cfg.segment_max_s = 6.0
     eng, _, _, _ = run([("s", 13.0), ("q", 0.5)], cfg)
     assert eng.segments[0]["forced"]
@@ -117,7 +123,7 @@ def test_leading_silence_is_dropped():
 def test_segments_typed_in_order_while_listening():
     asr = SpanAsr(delay=0.05)
     typed: list[str] = []
-    eng = SegmentEngine(Config(), None, LevelVad(), asr, on_commit=typed.append)
+    eng = SegmentEngine(no_final(), None, LevelVad(), asr, on_commit=typed.append)
     x = audio_of([("s", 2.2), ("q", 0.6), ("s", 2.2), ("q", 0.6), ("s", 0.8)])
     for i in range(0, len(x), FRAME):
         eng.feed(x[i : i + FRAME])
@@ -141,3 +147,46 @@ def test_failed_segment_does_not_stop_the_rest():
 
     _, _, text, _ = run([("s", 2.2), ("q", 0.6), ("s", 1.0), ("q", 0.3)], asr=Flaky())
     assert text.split() == ["w16000"]
+
+
+class WholeAsr(SpanAsr):
+    """Segments get one word per speech span; a recording with more than one span is the
+    whole-recording pass and gets its own marked text."""
+
+    def __init__(self, whole: str):
+        super().__init__()
+        self.whole = whole
+
+    def text(self, audio):
+        words = super().text(audio).split()
+        return self.whole if len(words) > 2 else " ".join(words)
+
+
+def test_final_pass_recognizes_the_whole_recording():
+    plan = [("q", 0.5), ("s", 2.2), ("q", 0.6), ("s", 2.2), ("q", 0.6), ("s", 0.8), ("q", 0.3)]
+    eng, typed, final, asr = run(plan, Config(), WholeAsr("Один, два, три."))
+    assert final == "Один, два, три."
+    assert "".join(typed).split() == ["w35200", "w35200"]  # the last segment is left to the final pass
+    whole = asr.calls[-1]
+    assert abs(whole - (0.3 + 2.2 + 0.6 + 2.2 + 0.6 + 0.8 + 0.25)) < 0.1  # from the first speech to the end
+    assert eng.stop_info["final_s"] >= 0
+
+
+def test_final_pass_that_drops_words_is_not_used():
+    plan = [("s", 2.2), ("q", 0.6), ("s", 2.2), ("q", 0.6), ("s", 2.2), ("q", 0.6), ("s", 0.8), ("q", 0.3)]
+    eng, typed, final, _ = run(plan, Config(), WholeAsr("Один."))
+    assert final.split() == ["w35200", "w35200", "w35200", "w12800"]  # typed text, last segment added
+    assert "".join(typed) == final
+
+
+def test_final_pass_failure_keeps_the_typed_text():
+    class Broken(SpanAsr):
+        def text(self, audio):
+            if len(super().text(audio).split()) > 2:
+                raise RuntimeError("boom")
+            return super().text(audio)
+
+    plan = [("s", 2.2), ("q", 0.6), ("s", 2.2), ("q", 0.6), ("s", 0.8), ("q", 0.3)]
+    _, typed, final, _ = run(plan, Config(), Broken())
+    assert final.split() == ["w35200", "w35200", "w12800"]
+    assert "".join(typed) == final

@@ -59,10 +59,10 @@ microphone ─► Silero VAD cuts the recording at pauses into segments of a few
                  │  each segment, as soon as it closes (listening goes on)
                  ▼
              speech recognizer ─► its text is typed into the focused field (SendInput)
-stop ─► only the last segment is left to recognize (+ optional local LLM)
+stop ─► the whole recording is recognized once more and replaces the typed text (+ optional local LLM)
 ```
 
-- **Speech recognition:** every segment is recognized once, by the accurate model, and typed as is; nothing typed is rewritten later. If [Type](https://gigatype.app) is installed on the computer, LiveType runs Type's own recognizer and model from that installation (nothing of it is copied or bundled), so the text is what Type itself would type. Otherwise it uses [GigaAM v3](https://github.com/salute-developers/GigaAM) e2e RNNT (Sber, MIT; int8 ONNX via [onnx-asr](https://github.com/istupakov/onnx-asr)).
+- **Speech recognition:** every segment is recognized once, by the accurate model, and typed as is. At stop the whole recording is recognized again, the way Type does it, and replaces the typed text in place (a pause taken for the end of a sentence is only known once you have finished); this works in the middle of a document too. If [Type](https://gigatype.app) is installed on the computer, LiveType makes a local copy of Type's recognizer module and model on its first start (in its data folder, never in the installer) and runs that, so the text is what Type itself would type, and it keeps working if Type is removed later. Otherwise it uses [GigaAM v3](https://github.com/salute-developers/GigaAM) e2e RNNT (Sber, MIT; int8 ONNX via [onnx-asr](https://github.com/istupakov/onnx-asr)).
 - **Segments:** a segment closes at the first pause of 0.4 s after 2 s of audio, at a 0.2 s pause after 5 s, and is cut at its quietest point at 15 s. On 24 test dictations this keeps the error rate of recognizing the whole recording at once (clean audio 5.5% vs 5.4%, laptop microphone 15.7% vs 17.7%).
 - **Typing into any app:** keyboard emulation (works with any layout). Windows UI Automation finds *your* dictated text in the field, so new words land right after it even if you clicked elsewhere, and the final correction only retypes the changed part.
 - **Hotkey:** a tiny separate listener process (low-level keyboard hook), so the keyboard never lags while recognition runs.

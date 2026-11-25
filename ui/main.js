@@ -335,8 +335,8 @@ function onEngineEvent(ev) {
       }
       return;
     case "notice":
+      // no pop-up windows while dictating (as in Type): notices only go to the log
       log(`notice (${ev.kind}): ${String(ev.title || "").slice(0, 80)}`);
-      showToast({ title: ev.title, body: ev.body, kind: ev.kind });
       return;
     case "settings":
       if (ev.settings && typeof ev.settings === "object") {

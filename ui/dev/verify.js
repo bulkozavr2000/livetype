@@ -162,17 +162,11 @@ async function main() {
   );
   await fgIsTarget("UI started (hidden in the tray)");
 
-  // 3. startup toast «LiveType готов»
-  const toastUp = await waitFor(async () => (await desk.info(T.toast)).visible, 15000);
-  check("engine (mock) ready, toast shown", toastUp, `${Date.now() - t0} ms after launch`);
-  await sleep(550); // slide-in is 400 ms
-  const toastInfo = await desk.info(T.toast);
-  check("toast: never activates, click-through, topmost", toastInfo.noactivate && toastInfo.transparent && toastInfo.topmost);
-  await desk.grab("ui_toast_ready.png", pad(toastInfo.rect, 4));
-  const toastInk = await desk.ink("ui_toast_ready.png", 235);
-  check("toast paints", toastInk > 1500, `ink ${toastInk}`);
-  await fgIsTarget("toast shown");
-  await waitFor(async () => !(await desk.info(T.toast)).visible, 6000);
+  // 3. engine ready, no startup pop-up (notices only go to the log)
+  const ready = await waitFor(async () => await capsule.eval("window.livetype.getState().then(s => s.ready)"), 15000);
+  check("engine (mock) ready", ready, `${Date.now() - t0} ms after launch`);
+  const toastUp = await waitFor(async () => (await desk.info(T.toast)).visible, 2000);
+  check("no startup pop-up", !toastUp);
 
   // 4. dictation: listening — only the capsule, no text bubble
   const before = await desk.fg();
@@ -219,20 +213,14 @@ async function main() {
   check("capsule paints while thinking", thinkInk.every((v) => v > 2000), `dark pixels ${thinkInk.join(", ")}`);
   await fgIsTarget("processing");
 
-  // 6. done: capsule hides, toast «Текст проверен»
+  // 6. done: capsule hides, no pop-up (notices only go to the log, as in Type)
   const capHidden = await waitFor(async () => !(await desk.info(T.capsule)).visible, 7000);
   check("capsule hidden after processing", capHidden);
-  const toast2 = await waitFor(async () => (await desk.info(T.toast)).visible, 3000);
-  check("toast for the done notice", toast2);
-  await sleep(550);
-  await desk.grab("ui_toast_done.png", pad((await desk.info(T.toast)).rect, 4));
-  const toast2Ink = await desk.ink("ui_toast_done.png", 235);
-  check("done toast paints", toast2Ink > 1500, `ink ${toast2Ink}`);
+  const toast2 = await waitFor(async () => (await desk.info(T.toast)).visible, 2500);
+  check("no pop-up after the dictation", !toast2);
   const cues = await capsule.eval("window.__cues");
   check("cues: start on listening, stop when it ends", JSON.stringify(cues) === '["tap_01.wav","tap_02.wav"]', cues);
   await fgIsTarget("after the whole dictation");
-  const toastGone = await waitFor(async () => !(await desk.info(T.toast)).visible, 6000);
-  check("toast hides by itself (~4 s)", toastGone);
 
   // 6b. «Показывать капсулу» off: nothing on screen while listening
   const dictation = () => capsule.eval("window.livetype.getState().then(s => s.dictation)");
