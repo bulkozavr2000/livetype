@@ -49,9 +49,6 @@ class Overlay:
     def listening(self) -> None:
         self.post("show", state="listening", title="Слушаю", subtitle="", color=RED)
 
-    def tentative(self, text: str) -> None:
-        self.post("subtitle", text=text)
-
     def processing(self) -> None:
         self.post("show", state="processing", title="Проверяю текст…", subtitle="финальная проверка всей записи", color=AMBER)
 
@@ -157,9 +154,6 @@ class Overlay:
             ttl = kw.get("ttl")
             self.hide_at = time.monotonic() + float(ttl) if ttl else None
             self._set_visible(True)
-        elif kind == "subtitle":
-            if self.state == "listening":
-                self.subtitle = str(kw["text"])
         elif kind == "hide":
             self.state = "hidden"
             self.hide_at = None

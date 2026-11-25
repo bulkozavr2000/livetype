@@ -1,7 +1,7 @@
 {
   "name": "livetype",
   "productName": "LiveType",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "LiveType — offline voice typing for Windows. Desktop shell (Electron); look and behaviour ported from Type (GigaType2 / OpenWhispr, MIT).",
   "main": "main.js",
   "private": true,

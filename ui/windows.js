@@ -70,42 +70,6 @@ const CONTROL_PANEL_CONFIG = {
   type: "normal",
 };
 
-// Live preview bubble: Type's transcription preview window
-const TRANSCRIPTION_PREVIEW_SIZE_LIMITS = {
-  minWidth: 400,
-  defaultWidth: 460,
-  maxWidth: 640,
-  minHeight: 96,
-  defaultHeight: 132,
-  maxHeight: 520,
-};
-// Type's preview window is 420 wide with 8 px padding around the card (card 404 wide, 16 px above the
-// capsule window). That padding clips the card's 24 px shadow, so ours keeps the card in the same place
-// but gives the transparent, click-through window room for the shadow.
-const PREVIEW_PAD = { top: 16, side: 24, bottom: 32 };
-const PREVIEW_CARD_WIDTH = 420 - 16;
-const PREVIEW_WINDOW_WIDTH = PREVIEW_CARD_WIDTH + PREVIEW_PAD.side * 2;
-// Type: window bottom 8 px above the capsule window, card 8 px inside -> card bottom 16 px above.
-const PREVIEW_GAP = 16 - PREVIEW_PAD.bottom;
-
-const TRANSCRIPTION_PREVIEW_CONFIG = {
-  width: TRANSCRIPTION_PREVIEW_SIZE_LIMITS.defaultWidth,
-  height: TRANSCRIPTION_PREVIEW_SIZE_LIMITS.defaultHeight,
-  title: "LiveType — превью",
-  frame: false,
-  transparent: true,
-  backgroundColor: "#00000000",
-  alwaysOnTop: true,
-  skipTaskbar: true,
-  resizable: false,
-  focusable: false,
-  hasShadow: false,
-  show: false,
-  acceptsFirstMouse: true,
-  webPreferences: overlayWebPreferences,
-  type: "normal",
-};
-
 // Toast notices: Type's NOTIFICATION_WINDOW_CONFIG size, placed at the capsule instead of the corner
 const NOTIFICATION_WINDOW_CONFIG = {
   width: 392,
@@ -141,21 +105,6 @@ class WindowPositionUtil {
     return { x, y, width, height };
   }
 
-  static getTranscriptionPreviewPosition(display, mainWindowBounds, size = {}, gap = 8) {
-    const width = size.width || TRANSCRIPTION_PREVIEW_CONFIG.width;
-    const height = size.height || TRANSCRIPTION_PREVIEW_CONFIG.height;
-    const GAP = gap;
-    const workArea = display.workArea || display.bounds;
-
-    let x = Math.round(mainWindowBounds.x + (mainWindowBounds.width - width) / 2);
-    let y = mainWindowBounds.y - height - GAP;
-
-    x = Math.max(workArea.x, Math.min(x, workArea.x + workArea.width - width));
-    y = Math.max(workArea.y, Math.min(y, workArea.y + workArea.height - height));
-
-    return { x, y, width, height };
-  }
-
   // Toast: centred over the capsule. `bottom` is the y its lower edge should sit at.
   static getToastPosition(display, anchorBounds, bottom, size) {
     const workArea = display.workArea || display.bounds;
@@ -177,11 +126,6 @@ module.exports = {
   MAIN_WINDOW_CONFIG,
   CONTROL_PANEL_CONFIG,
   NOTIFICATION_WINDOW_CONFIG,
-  TRANSCRIPTION_PREVIEW_CONFIG,
-  TRANSCRIPTION_PREVIEW_SIZE_LIMITS,
-  PREVIEW_PAD,
-  PREVIEW_WINDOW_WIDTH,
-  PREVIEW_GAP,
   DICTATION_PILL_WINDOW,
   WindowPositionUtil,
 };

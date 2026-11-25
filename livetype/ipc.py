@@ -60,11 +60,7 @@ class IpcUi:
         self._state("listening")
 
     def processing(self) -> None:
-        self.emit("tentative", text="")
         self._state("processing")
-
-    def tentative(self, text: str) -> None:
-        self.emit("tentative", text=text)
 
     def done(self, title: str = "Готово", subtitle: str = "", ttl: float = 1.6) -> None:
         self._state("done", {"title": title, "subtitle": subtitle})
@@ -76,7 +72,6 @@ class IpcUi:
         self.emit("notice", title=title, body=subtitle, kind=kind or "info")
 
     def hide(self) -> None:
-        self.emit("tentative", text="")
         self._state("idle")
 
     def finish(self) -> None:

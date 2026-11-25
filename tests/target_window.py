@@ -5,6 +5,7 @@ python tests/target_window.py <out.txt> <x> <y> <w> <h>
 
 import ctypes
 import json
+import os
 import sys
 import tkinter as tk
 
@@ -19,8 +20,13 @@ text.pack(fill="both", expand=True)
 
 
 def save() -> None:
-    with open(out, "w", encoding="utf-8") as f:
-        f.write(text.get("1.0", "end-1c"))
+    # write a temporary file and swap it in: a reader never sees a half-written or empty file
+    try:
+        with open(out + ".tmp", "w", encoding="utf-8") as f:
+            f.write(text.get("1.0", "end-1c"))
+        os.replace(out + ".tmp", out)
+    except PermissionError:
+        pass  # the reader holds the file open right now; the next save in 150 ms catches up
     root.after(150, save)
 
 

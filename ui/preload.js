@@ -4,7 +4,7 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 // main -> renderer channels a page may subscribe to
-const CHANNELS = new Set(["state", "capsule", "level", "sound", "preview", "toast"]);
+const CHANNELS = new Set(["state", "capsule", "level", "sound", "toast"]);
 
 contextBridge.exposeInMainWorld("livetype", {
   // Subscribe to a main-process channel. Returns an unsubscribe function.
@@ -27,9 +27,6 @@ contextBridge.exposeInMainWorld("livetype", {
   // overlays
   capsuleHidden(gen) {
     ipcRenderer.send("lt:capsule-hidden", gen);
-  },
-  previewResize(height) {
-    ipcRenderer.send("lt:preview-resize", height);
   },
   toastResize(height) {
     ipcRenderer.send("lt:toast-resize", height);

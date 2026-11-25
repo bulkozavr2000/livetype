@@ -1,6 +1,6 @@
 """End-to-end with the real UI: Electron shell (ui/) + Python engine, a WAV instead of the microphone.
 
-python tests/e2e_ui.py — hotkey, capsule + live preview, live typing, final fix in place.
+python tests/e2e_ui.py — hotkey, capsule, live typing, final fix in place.
 Settings live in a temporary folder, so the user's own settings are not touched.
 """
 

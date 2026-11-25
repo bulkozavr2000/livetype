@@ -4,7 +4,7 @@
 // Protocol commands it answers: toggle, cancel, get_settings, set_settings, list_devices,
 // capture_hotkey, download_model, get_history, quit.
 // Test-only commands (never sent by the real UI): mock_notice {title, body, kind}, mock_state {state},
-// mock_tentative {text}, mock_crash.
+// mock_crash.
 // Flags: --mock-crash-after=<seconds>  exit with code 3 after that time (restart tests)
 //        --mock-ready-delay=<ms>       delay before "ready" (default 700)
 //        --mock-processing-ms=<ms>     how long the final check takes (default 2600)
@@ -60,7 +60,7 @@ const PHRASES = [
 
 let state = "idle";
 let levelTimer = null;
-let textTimers = [];
+let timers = [];
 let downloadTimers = {};
 let hotkeyIndex = 0;
 
@@ -126,48 +126,30 @@ function stopLevels() {
   levelTimer = null;
 }
 
-// --- tentative text: the phrase being recognised grows word by word ---
-function startText() {
-  stopText();
-  let t = 500;
-  for (const phrase of PHRASES) {
-    const words = phrase.split(" ");
-    for (let i = 1; i <= words.length; i += 1) {
-      const text = words.slice(0, i).join(" ");
-      textTimers.push(setTimeout(() => state === "listening" && emit({ event: "tentative", text }), t));
-      t += 260 + Math.random() * 120;
-    }
-    t += 1600; // the phrase stays on screen, then it is "typed" and cleared
-    textTimers.push(setTimeout(() => state === "listening" && emit({ event: "tentative", text: "" }), t));
-    t += 700;
-  }
-}
-
-function stopText() {
-  for (const timer of textTimers) clearTimeout(timer);
-  textTimers = [];
+// --- pending timers (the final check) ---
+function clearTimers() {
+  for (const timer of timers) clearTimeout(timer);
+  timers = [];
 }
 
 function toggle() {
   if (state === "idle" || state === "done" || state === "error") {
     setState("listening");
     startLevels();
-    startText();
     return;
   }
   if (state === "listening") {
     stopLevels();
-    stopText();
-    emit({ event: "tentative", text: "" });
+    clearTimers();
     setState("processing");
-    textTimers.push(
+    timers.push(
       setTimeout(() => {
         setState("done");
         history.unshift({ time: new Date().toISOString(), text: PHRASES.join(" ") });
         if (settings.final_check) {
           emit({ event: "notice", title: "Текст проверен", body: "Исправлено 2 места", kind: "success" });
         }
-        textTimers.push(setTimeout(() => state === "done" && setState("idle"), 900));
+        timers.push(setTimeout(() => state === "done" && setState("idle"), 900));
       }, PROCESSING_MS)
     );
   }
@@ -175,8 +157,7 @@ function toggle() {
 
 function cancel() {
   stopLevels();
-  stopText();
-  emit({ event: "tentative", text: "" });
+  clearTimers();
   setState("idle");
 }
 
@@ -237,15 +218,13 @@ function handle(msg) {
       return setTimeout(() => emit({ event: "history", items: history.slice(0, 50) }), 150);
     case "quit":
       stopLevels();
-      stopText();
+      clearTimers();
       return process.stdout.write("", () => process.exit(0));
     // test-only
     case "mock_notice":
       return emit({ event: "notice", title: msg.title, body: msg.body, kind: msg.kind || "info" });
     case "mock_state":
       return setState(String(msg.state), msg.detail);
-    case "mock_tentative":
-      return emit({ event: "tentative", text: String(msg.text || "") });
     case "mock_crash":
       return process.exit(3);
     default:

@@ -144,11 +144,9 @@ const state = {
   historyLoading: false,
   hotkeyCapture: false,
 };
-let tentative = "";
 
 let engine = null;
 let capsuleWin = null;
-let previewWin = null;
 let toastWin = null;
 let panelWin = null;
 let tray = null;
@@ -293,7 +291,6 @@ function onEngineStatus(status, info) {
     state.historyLoading = false;
     state.modelProgress = {};
     state.pendingModel = null;
-    tentative = "";
     if (state.dictation !== "idle") setDictation("idle", null);
   }
   if (status === "failed") {
@@ -324,7 +321,6 @@ function onEngineEvent(ev) {
       }
       if (Array.isArray(ev.devices)) state.devices = ev.devices;
       if (ev.models) state.models = mergeModels(ev.models);
-      tentative = "";
       setDictation("idle", null);
       saveCache();
       break;
@@ -336,10 +332,6 @@ function onEngineEvent(ev) {
         const v = Number(ev.value);
         sendTo(capsuleWin, "lt:level", Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0);
       }
-      return;
-    case "tentative":
-      tentative = typeof ev.text === "string" ? ev.text : "";
-      syncPreview();
       return;
     case "notice":
       log(`notice (${ev.kind}): ${String(ev.title || "").slice(0, 80)}`);
@@ -443,7 +435,6 @@ function setDictation(next, detail) {
       if (next === "listening") playSound("start");
       else if (prev === "listening") playSound("stop");
     }
-    if (next !== "listening" && next !== "processing") tentative = "";
   }
   syncOverlays();
   broadcast();
@@ -510,7 +501,7 @@ function onUiCommand(command) {
 }
 
 // ---------------------------------------------------------------------------------------------------
-// overlay windows (capsule, live preview, toast): never focusable, click-through
+// overlay windows (capsule, toast): never focusable, click-through
 // ---------------------------------------------------------------------------------------------------
 function cursorDisplay() {
   return screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
@@ -552,7 +543,6 @@ function createOverlayWindow(config, page, display) {
 function createOverlayWindows() {
   const display = cursorDisplay();
   capsuleWin = createOverlayWindow(W.MAIN_WINDOW_CONFIG, "capsule.html", display);
-  previewWin = createOverlayWindow(W.TRANSCRIPTION_PREVIEW_CONFIG, "preview.html", display);
   toastWin = createOverlayWindow(W.NOTIFICATION_WINDOW_CONFIG, "toast.html", display);
   capsuleWin.webContents.on("did-finish-load", () => {
     // a reloaded capsule page must catch up with the current state
@@ -565,7 +555,6 @@ function createOverlayWindows() {
 
 function syncOverlays() {
   syncCapsule();
-  syncPreview();
   if (toastVisible) positionToast();
 }
 
@@ -657,80 +646,6 @@ function showCapsuleWindow() {
   }
 }
 
-// --- live preview bubble (Type: transcription preview) ---
-let previewWanted = false;
-let previewHeight = W.TRANSCRIPTION_PREVIEW_SIZE_LIMITS.defaultHeight;
-let previewHideTimer = null;
-let previewGraceTimer = null;
-
-function syncPreview() {
-  const st = state.dictation;
-  const recording = st === "listening" || st === "processing";
-  const text = tentative.trim();
-  if (recording && text && previewWin && !previewWin.isDestroyed()) {
-    clearTimeout(previewGraceTimer);
-    previewGraceTimer = null;
-    clearTimeout(previewHideTimer);
-    previewHideTimer = null;
-    sendTo(previewWin, "lt:preview", { visible: true, text, mode: st === "processing" ? "cleanup" : "live" });
-    if (!previewWanted) {
-      previewWanted = true;
-      positionPreview();
-      if (!previewWin.isVisible()) previewWin.showInactive();
-      W.WindowPositionUtil.setupAlwaysOnTop(previewWin);
-      previewWin.moveTop();
-      if (toastVisible) positionToast();
-    }
-    repaint(previewWin);
-    return;
-  }
-  if (!previewWanted) return;
-  if (recording) {
-    // text cleared between phrases: a short grace period keeps the bubble from flickering
-    if (!previewGraceTimer) {
-      previewGraceTimer = setTimeout(() => {
-        previewGraceTimer = null;
-        hidePreview();
-      }, 300);
-    }
-  } else {
-    hidePreview();
-  }
-}
-
-function hidePreview() {
-  clearTimeout(previewGraceTimer);
-  previewGraceTimer = null;
-  if (!previewWanted) return;
-  previewWanted = false;
-  sendTo(previewWin, "lt:preview", { visible: false });
-  clearTimeout(previewHideTimer);
-  // Type: the page animates out for 200 ms, then the window hides
-  previewHideTimer = setTimeout(() => {
-    previewHideTimer = null;
-    if (!previewWanted && previewWin && !previewWin.isDestroyed()) previewWin.hide();
-    if (toastVisible) positionToast();
-  }, 220);
-}
-
-function positionPreview() {
-  if (!previewWin || previewWin.isDestroyed()) return;
-  const L = W.TRANSCRIPTION_PREVIEW_SIZE_LIMITS;
-  const extra = W.PREVIEW_PAD.top + W.PREVIEW_PAD.bottom - 16; // beyond Type's 2 x 8 px
-  const display = overlayDisplay();
-  const width = W.PREVIEW_WINDOW_WIDTH;
-  const height = Math.max(L.minHeight + extra, Math.min(Math.round(previewHeight), L.maxHeight + extra));
-  previewWin.setBounds(
-    W.WindowPositionUtil.getTranscriptionPreviewPosition(
-      display,
-      capsuleAnchorBounds(display),
-      { width, height },
-      W.PREVIEW_GAP
-    )
-  );
-  repaint(previewWin);
-}
-
 // --- toast notices ---
 let toastSeq = 0;
 let toastHeight = W.NOTIFICATION_WINDOW_CONFIG.height;
@@ -764,9 +679,7 @@ function positionToast() {
   const anchor = capsuleAnchorBounds(display);
   // The toast window has 18 px of transparent room under the toast; `bottom` is the window's lower edge.
   let bottom;
-  if (previewWanted && previewWin && previewWin.isVisible()) {
-    bottom = previewWin.getBounds().y + W.PREVIEW_PAD.top - 8 + 18; // 8 px above the preview card
-  } else if (capsuleWin && capsuleWin.isVisible()) {
+  if (capsuleWin && capsuleWin.isVisible()) {
     bottom = anchor.y + 30; // ~16 px above the capsule glass
   } else {
     bottom = anchor.y + anchor.height - 10; // where the capsule glass would end
@@ -866,12 +779,6 @@ function registerIpc() {
   ipcMain.handle("lt:get-state", () => snapshot());
   ipcMain.on("lt:engine", (_e, command) => onUiCommand(command));
   ipcMain.on("lt:capsule-hidden", (_e, gen) => finishCapsuleHide(gen));
-  ipcMain.on("lt:preview-resize", (_e, height) => {
-    const h = Number(height);
-    if (!Number.isFinite(h) || h <= 0) return;
-    previewHeight = h;
-    if (previewWanted) positionPreview();
-  });
   ipcMain.on("lt:toast-resize", (_e, height) => {
     const h = Number(height);
     if (!Number.isFinite(h) || h <= 0) return;
@@ -925,7 +832,14 @@ function createTray() {
   tray.on("click", () => showControlPanel());
   log("tray ready");
   // ui/dev/verify.js drives the tray through the main-process inspector (demo mode only)
-  if (IS_MOCK) global.__livetypeTest = { tray, menu, tooltip };
+  if (IS_MOCK) {
+    global.__livetypeTest = {
+      tray,
+      menu,
+      tooltip,
+      windows: () => BrowserWindow.getAllWindows().map((w) => w.getTitle()),
+    };
+  }
 }
 
 async function quitApp() {
@@ -957,7 +871,6 @@ function onReady() {
 
   const reposition = () => {
     if (capsuleWin && !capsuleWin.isDestroyed() && capsuleWin.isVisible()) repositionCapsule();
-    if (previewWanted) positionPreview();
     if (toastVisible) positionToast();
   };
   screen.on("display-metrics-changed", reposition);

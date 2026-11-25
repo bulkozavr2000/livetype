@@ -24,7 +24,6 @@ const MAIN_PORT = 9339; // main process (Node inspector)
 const TARGET_TITLE = "LiveType — тестовое окно";
 const T = {
   capsule: "LiveType — капсула",
-  preview: "LiveType — превью",
   toast: "LiveType — уведомление",
   panel: "LiveType",
 };
@@ -175,7 +174,7 @@ async function main() {
   await fgIsTarget("toast shown");
   await waitFor(async () => !(await desk.info(T.toast)).visible, 6000);
 
-  // 4. dictation: listening (capsule with levels), then the live preview
+  // 4. dictation: listening — only the capsule, no text bubble
   const before = await desk.fg();
   await capsule.eval('window.livetype.send({cmd: "toggle"})');
   const capVisible = await waitFor(async () => (await desk.info(T.capsule)).visible, 3000);
@@ -196,18 +195,15 @@ async function main() {
     await sleep(180);
   }
   check("capsule paints while listening (3 frames)", capInks.every((v) => v > 2000), `dark pixels ${capInks.join(", ")}`);
-  const preview = await connectPage(PORT, "overlay/preview.html");
-  const longText = await waitFor(async () => {
-    const t = await preview.eval('document.getElementById("card").hidden ? "" : document.getElementById("text").textContent');
-    return t.length > 45 ? t : null;
-  }, 12000);
-  check("preview bubble shows the tentative text", Boolean(longText), longText);
-  const prevInfo = await desk.info(T.preview);
-  check("preview: visible, never activates, click-through, topmost", prevInfo.visible && prevInfo.noactivate && prevInfo.transparent && prevInfo.topmost);
-  await desk.grab("ui_preview.png", pad(union(prevInfo.rect, (await desk.info(T.capsule)).rect), 20));
-  const previewInk = await desk.ink("ui_preview.png", 200, 0, 0.45);
-  check("preview bubble paints", previewInk > 1500, `ink ${previewInk}`);
-  await fgIsTarget("capsule + preview shown");
+  await sleep(2500);
+  const titles = await mainProc.eval("global.__livetypeTest.windows()");
+  check(
+    "only the capsule while listening: no text bubble window",
+    Array.isArray(titles) && titles.every((t) => Object.values(T).includes(t)) && !titles.some((t) => /превью/i.test(t)),
+    titles
+  );
+  await desk.grab("ui_listening_capsule_only.png", pad(capInfo.rect, 160));
+  await fgIsTarget("capsule shown");
 
   // 5. processing: the capsule morphs into the thinking state
   await capsule.eval('window.livetype.send({cmd: "toggle"})');
@@ -221,8 +217,6 @@ async function main() {
   await desk.grab("ui_capsule_thinking_2.png", pad(capInfo2.rect, 30));
   const thinkInk = [await desk.ink("ui_capsule_thinking_1.png", 100), await desk.ink("ui_capsule_thinking_2.png", 100)];
   check("capsule paints while thinking", thinkInk.every((v) => v > 2000), `dark pixels ${thinkInk.join(", ")}`);
-  const prevHidden = await waitFor(async () => !(await desk.info(T.preview)).visible, 2000);
-  check("preview hidden when the text is empty", prevHidden);
   await fgIsTarget("processing");
 
   // 6. done: capsule hides, toast «Текст проверен»
@@ -240,18 +234,20 @@ async function main() {
   const toastGone = await waitFor(async () => !(await desk.info(T.toast)).visible, 6000);
   check("toast hides by itself (~4 s)", toastGone);
 
-  // 6b. «Показывать капсулу» off: no capsule while listening, the live preview still works
+  // 6b. «Показывать капсулу» off: nothing on screen while listening
+  const dictation = () => capsule.eval("window.livetype.getState().then(s => s.dictation)");
   await capsule.eval('window.livetype.send({cmd: "set_settings", settings: {show_capsule: false}})');
   await sleep(200);
   await capsule.eval('window.livetype.send({cmd: "toggle"})');
-  const previewWithout = await waitFor(async () => (await desk.info(T.preview)).visible, 4000);
+  const listeningWithout = await waitFor(async () => (await dictation()) === "listening", 4000);
+  await sleep(1500);
   const capsuleWithout = (await desk.info(T.capsule)).visible;
-  check("show_capsule=false: capsule stays hidden, preview still shown", !capsuleWithout && previewWithout, {
+  check("show_capsule=false: dictation runs, capsule stays hidden", listeningWithout && !capsuleWithout, {
+    listening: Boolean(listeningWithout),
     capsule: capsuleWithout,
-    preview: previewWithout,
   });
   await capsule.eval('window.livetype.send({cmd: "cancel"})');
-  await waitFor(async () => !(await desk.info(T.preview)).visible, 3000);
+  await waitFor(async () => (await dictation()) === "idle", 3000);
   await capsule.eval('window.livetype.send({cmd: "set_settings", settings: {show_capsule: true}})');
   await fgIsTarget("show_capsule=false round");
 
@@ -390,7 +386,7 @@ async function main() {
   await sleep(300);
   check("engine process stopped on quit", !pidAlive(enginePid), `pid ${enginePid}`);
 
-  for (const s of [panel, preview, capsule]) s.close();
+  for (const s of [panel, capsule]) s.close();
   try {
     target.kill();
   } catch {

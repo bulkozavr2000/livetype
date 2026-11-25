@@ -508,7 +508,6 @@ class App:
             self._event(f"EVENT start target={win.window_process(target)} mode={typer.mode}")
             engine = DictationEngine(cfg, self.live, self.vad, self.final,
                                      on_commit=typer.add,
-                                     on_tentative=self.ui.tentative if cfg.live_typing else None,
                                      on_level=self._set_level)
             source = self.source_factory()
             self.phase = "listening"

@@ -23,7 +23,7 @@ Words appear in any app as you talk; when you stop, the whole recording is re-ch
 Most dictation tools make you wait: you speak, stop, and only then the text is pasted. LiveType works like
 live dictation in modern chat apps, but **in every Windows app** and **without the cloud**:
 
-- **Types as you speak** — settled words go straight into the field (Telegram, browser, Word, Notepad, Obsidian, VS Code…); the word still being recognized is shown in a small bubble.
+- **Types as you speak** — settled words go straight into the field (Telegram, browser, Word, Notepad, Obsidian, VS Code…); on screen there is only a small capsule.
 - **Double check** — when you stop, a more accurate model re-listens to the whole recording with full context and fixes words and punctuation right in the text.
 - **Keeps your edits** — fix a word by hand mid-dictation: new words still go right after the dictated text (not to the end of the document), your cursor goes back where you left it, and the final check never overwrites what you changed.
 - **Private by design** — speech recognition runs on your CPU. No account, no internet after the first start, no audio leaves the PC.

@@ -90,7 +90,7 @@ def main() -> int:
     exe = sys.argv[1] if len(sys.argv) > 1 else os.path.expandvars(r"%LOCALAPPDATA%\Programs\LiveType\LiveType.exe")
     sw, sh = win.user32.GetSystemMetrics(0), win.user32.GetSystemMetrics(1)
     w, h = 860, 250
-    x, y = (sw - w) // 2, sh - 115 - 119 - 175 - h
+    x, y = (sw - w) // 2, sh - 115 - 119 - 110 - h
     crop = (x - 70, y - 60, x + w + 70, sh - 95)
     procs = [subprocess.Popen([sys.executable, "-c", BACKDROP])]
     find_title("LiveType backdrop")

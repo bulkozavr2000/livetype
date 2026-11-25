@@ -53,7 +53,6 @@ class DictationEngine:
         vad: StreamingVad,
         final: Recognizer | None = None,
         on_commit: Callable[[str], None] | None = None,
-        on_tentative: Callable[[str], None] | None = None,
         on_level: Callable[[float], None] | None = None,
     ):
         self.cfg = cfg
@@ -61,7 +60,6 @@ class DictationEngine:
         self.vad = vad
         self.final = final if cfg.final_pass else None
         self.on_commit = on_commit
-        self.on_tentative = on_tentative
         self.on_level = on_level
 
         self.vad.reset()
@@ -151,7 +149,6 @@ class DictationEngine:
         words = self._recognize(self.seg_start, self.audio.size)
         texts = [w.text for w in words]
         self._emit(self.stab.update(texts))
-        self._show_tentative()
         self.last_decode_at = self.audio.size
         if self.audio.size - self.seg_start >= self._s(self.cfg.max_live_segment_s):
             self._force_cut(words, texts)
@@ -178,7 +175,6 @@ class DictationEngine:
     def _close_segment(self, seg_end: int) -> None:
         words = self._recognize(self.seg_start, seg_end)
         self._emit(self.stab.finalize([w.text for w in words]))
-        self._show_tentative()
         self.in_speech = False
         self.silence = 0
         self.last_seg_end = seg_end
@@ -200,10 +196,6 @@ class DictationEngine:
         self.commit_log.append((self.audio_time, delta))
         if self.on_commit:
             self.on_commit(delta)
-
-    def _show_tentative(self) -> None:
-        if self.on_tentative:
-            self.on_tentative(" ".join(self.stab.pending))
 
     # ---------------------------------------------------------------- final pass
     def _close_chunk(self) -> None:
