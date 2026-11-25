@@ -112,7 +112,8 @@ def main() -> int:
             "engine started by the UI and the hotkey worked": bool(info["start"]),
             "words typed while speaking (7 s)": len(str(info["field_at_7s"]).split()) >= 4,
             "UI never stole focus": bool(info["fg_is_target_while_listening"]),
-            "final fix applied in place": bool(done) and "outcome=fixed" in done,
+            # 0.3 applies corrections at pauses, so a clean finish reports "done"
+            "final fix applied in place": bool(done) and ("outcome=fixed" in done or "outcome=done" in done),
             "comma fixed by the final pass": "посмотрим, насколько" in content,
             "text accurate": wer(REF, content) <= 0.05,
         }

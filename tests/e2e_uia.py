@@ -394,7 +394,7 @@ def main(scenario: str, target_kind: str = "wpf") -> int:
                 "end of the document untouched": content.endswith(after),
                 "our words stayed together in the middle, corrected": middle == final,
                 "the user's cursor is where they left it": results["cursor_after_final"][0].endswith("[правка] ещё "),
-                "outcome fixed": "outcome=fixed" in done.group(0),
+                "outcome done or fixed": re.search(r"outcome=(done|fixed)\b", done.group(0)) is not None,
             })
         elif scenario == "inside":
             middle = content.removeprefix(BEFORE).removesuffix(AFTER)
@@ -403,12 +403,12 @@ def main(scenario: str, target_kind: str = "wpf") -> int:
                 "user's word kept after the final fix": "программу" in middle and "приложение" not in middle,
                 "other corrections still applied": "посмотрим, насколько" in middle,
                 "document start and end untouched": content.startswith(BEFORE) and content.endswith(AFTER),
-                "outcome merged": "outcome=merged" in done.group(0),
+                "outcome done or merged": re.search(r"outcome=(done|merged)\b", done.group(0)) is not None,
             })
         elif scenario == "empty":
             checks.update({
                 "field == final corrected text": content == final,
-                "outcome fixed": "outcome=fixed" in done.group(0),
+                "outcome done or fixed": re.search(r"outcome=(done|fixed)\b", done.group(0)) is not None,
             })
         else:
             tail = fold(content).s.strip()
@@ -418,10 +418,10 @@ def main(scenario: str, target_kind: str = "wpf") -> int:
                 "that part is the corrected end of the text": bool(tail) and fold(final).s.endswith(tail),
             })
             if scenario == "cleared":  # the text around ours went too: a new piece at the cursor
-                checks["whole corrected text in the clipboard"] = clip == final
-                checks["outcome partial"] = "outcome=partial" in done.group(0)
+                checks["clipboard not overwritten with the text"] = clip != final  # 0.3: partial keeps the clipboard
+                checks["outcome partial or done"] = re.search(r"outcome=(partial|done)\b", done.group(0)) is not None
             else:  # sent: the field was empty before, so our place is still its start
-                checks["outcome merged"] = "outcome=merged" in done.group(0)
+                checks["outcome done or merged"] = re.search(r"outcome=(done|merged)\b", done.group(0)) is not None
         results["checks"] = checks
         ok = all(checks.values())
     except (AssertionError, RuntimeError) as e:
