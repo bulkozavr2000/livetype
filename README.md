@@ -55,14 +55,15 @@ Requirements: Windows 10/11 (x64), a microphone, ~1.5 GB of disk space. No GPU n
 ## How it works
 
 ```
-microphone ─► Silero VAD (pauses) ─► GigaAM v3 CTC, re-run every ~0.3 s ─► words two passes agree on
-                                                                              │
-                                     typed into the focused field (SendInput) ◄┘
-stop ─► GigaAM v3 RNNT over the whole recording (+ optional local LLM) ─► minimal in-place correction
+microphone ─► Silero VAD cuts the recording at pauses into segments of a few seconds
+                 │  each segment, as soon as it closes (listening goes on)
+                 ▼
+             speech recognizer ─► its text is typed into the focused field (SendInput)
+stop ─► only the last segment is left to recognize (+ optional local LLM)
 ```
 
-- **Speech recognition:** [GigaAM v3](https://github.com/salute-developers/GigaAM) end-to-end models (Sber, MIT) — currently the strongest open model for Russian, with punctuation. Int8 ONNX via [onnx-asr](https://github.com/istupakov/onnx-asr), CPU real-time factor ≈ 0.08.
-- **Streaming on a non-streaming model:** the open phrase is re-recognized every ~0.3 s; a word is typed once two consecutive guesses agree on it (LocalAgreement). Long phrases are cut exactly between words using token timestamps.
+- **Speech recognition:** every segment is recognized once, by the accurate model, and typed as is; nothing typed is rewritten later. If [Type](https://gigatype.app) is installed on the computer, LiveType runs Type's own recognizer and model from that installation (nothing of it is copied or bundled), so the text is what Type itself would type. Otherwise it uses [GigaAM v3](https://github.com/salute-developers/GigaAM) e2e RNNT (Sber, MIT; int8 ONNX via [onnx-asr](https://github.com/istupakov/onnx-asr)).
+- **Segments:** a segment closes at the first pause of 0.4 s after 2 s of audio, at a 0.2 s pause after 5 s, and is cut at its quietest point at 15 s. On 24 test dictations this keeps the error rate of recognizing the whole recording at once (clean audio 5.5% vs 5.4%, laptop microphone 15.7% vs 17.7%).
 - **Typing into any app:** keyboard emulation (works with any layout). Windows UI Automation finds *your* dictated text in the field, so new words land right after it even if you clicked elsewhere, and the final correction only retypes the changed part.
 - **Hotkey:** a tiny separate listener process (low-level keyboard hook), so the keyboard never lags while recognition runs.
 - **Text processing:** [llama.cpp](https://github.com/ggml-org/llama.cpp) server with Qwen models (Apache-2.0), answers that differ too much from what you said are discarded.
@@ -78,9 +79,9 @@ Russian today (GigaAM v3). The pipeline is model-agnostic: NVIDIA Parakeet / Nem
 
 **Does it work in Telegram, browsers, Word, Obsidian, VS Code?** Yes, it types into any focused text field. Smart placement after your edits needs UI Automation, which browsers, Electron apps, Office, WPF/WinForms and Qt apps provide; elsewhere the corrected text goes to the clipboard.
 
-**How is it different from Windows voice typing (Win+H) or cloud dictation apps?** Recognition is local and private, it keeps typing while you speak, and it re-checks the whole recording at the end to fix words and punctuation in place.
+**How is it different from Windows voice typing (Win+H) or cloud dictation apps?** Recognition is local and private, and the text appears while you speak, a few seconds at a time, already recognized by the accurate model.
 
-**Which speech model is used?** GigaAM v3 e2e by Sber (MIT): CTC for the live pass, RNNT for the final check.
+**Which speech model is used?** Type's own recognizer when Type is installed, otherwise GigaAM v3 e2e RNNT by Sber (MIT).
 
 **Does it need a GPU?** No. Everything runs on the CPU.
 

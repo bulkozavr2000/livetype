@@ -116,6 +116,13 @@ class Config:
     preroll_s: float = 0.25
     tail_pad_s: float = 0.2
 
+    # --- recognizer: "type" = Type's own recognizer and model when Type is installed, else ours
+    recognizer: str = "type"
+    # --- live typing: the recording is cut at pauses, every segment is recognized and typed at once
+    segment_min_s: float = 2.0  # a segment closes at the first pause after this
+    segment_pause_s: float = 0.4  # ... of at least this long
+    segment_soft_max_s: float = 5.0  # after this, a shorter pause (0.2 s) closes it
+    segment_max_s: float = 15.0  # speech without any pause is cut here (at its quietest point)
     # --- final pass: short padded chunks (long noisy chunks make the model drop whole phrases) ---
     chunk_gap_s: float = 0.75  # pause that closes a chunk
     chunk_soft_max_s: float = 8.0  # a chunk closes at the next pause after this; it never exceeds this + 0.5 s

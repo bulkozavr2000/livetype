@@ -407,7 +407,7 @@ def main(scenario: str, target_kind: str = "wpf") -> int:
             })
         elif scenario == "empty":
             checks.update({
-                "field == final corrected text": content == final,
+                "field == final corrected text": content.strip("\n") == final,  # an empty Chromium editor reads as "\n"
                 "outcome done or fixed": re.search(r"outcome=(done|fixed)\b", done.group(0)) is not None,
             })
         else:

@@ -240,7 +240,8 @@ function sendTo(win, channel, data) {
 // ---------------------------------------------------------------------------------------------------
 function createEngine() {
   // LIVETYPE_UI_PID: the engine never types into our own windows (panel, capsule)
-  const env = { ...process.env, PYTHONUNBUFFERED: "1", LIVETYPE_UI_PID: String(process.pid) };
+  // LIVETYPE_NODE: our Electron binary runs Type's recognizer module as plain Node (ELECTRON_RUN_AS_NODE)
+  const env = { ...process.env, PYTHONUNBUFFERED: "1", LIVETYPE_UI_PID: String(process.pid), LIVETYPE_NODE: process.execPath };
   let command;
   let args;
   if (IS_MOCK) {

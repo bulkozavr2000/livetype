@@ -19,11 +19,13 @@ import winsound
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+import numpy as np
+
 from livetype import win
 from livetype.asr import Recognizer, StreamingVad
 from livetype.audio import Source
-from livetype.config import DATA_DIR, HISTORY_PATH, Config
-from livetype.engine import DictationEngine
+from livetype.config import DATA_DIR, HISTORY_PATH, SAMPLE_RATE, Config
+from livetype.segment_engine import SegmentEngine as DictationEngine  # tests replace this name
 from livetype.textops import (
     common_affixes,
     common_suffix,
@@ -920,14 +922,30 @@ class App:
         self.on_text_settings_changed: Callable[[], None] = lambda: None
         self.arm_cancel: Callable[[bool], None] = lambda on: None  # Esc cancels while dictating
         t = time.perf_counter()
-        self.live = Recognizer(cfg.live_model, cfg.models_dir, cfg.quantization, cfg.live_threads)
-        self.final = Recognizer(cfg.final_model, cfg.models_dir, cfg.quantization, cfg.final_threads)
+        self.live = None
+        self.final = self._load_recognizer(cfg)
         self.vad = StreamingVad(cfg.models_dir)
-        log.info("models loaded in %.1f s", time.perf_counter() - t)
+        log.info("models loaded in %.1f s (%s)", time.perf_counter() - t, self.recognizer_name)
         self.hotkey_vk = 0
         self.hold_down = False  # hold mode: the hotkey is held right now
         self.sounds = Sounds(cfg.sounds and play_sounds)
         self.thread = threading.Thread(target=self._worker, name="controller", daemon=True)
+
+    def _load_recognizer(self, cfg: Config):
+        """Type's own recognizer and model when Type is installed (the same text Type types),
+        else our GigaAM v3 RNNT."""
+        if getattr(cfg, "recognizer", "type") == "type":
+            from livetype import type_runtime
+            if type_runtime.available():
+                try:
+                    rec = type_runtime.TypeAsr()
+                    rec.text(np.zeros(SAMPLE_RATE, dtype=np.float32))  # warm-up
+                    self.recognizer_name = "type"
+                    return rec
+                except Exception:
+                    log.exception("Type's recognizer failed to start, using GigaAM v3 RNNT")
+        self.recognizer_name = cfg.final_model
+        return Recognizer(cfg.final_model, cfg.models_dir, cfg.quantization, cfg.final_threads)
 
     def start(self) -> None:
         self.thread.start()
@@ -967,6 +985,9 @@ class App:
             cmd = self.cmds.get()
             if cmd == "quit":
                 self._end_polish(wait=False)
+                close = getattr(self.final, "close", None)
+                if close:
+                    close()  # Type's recognizer runs in a process of its own
                 return
             if cmd != "toggle":
                 continue
@@ -1020,8 +1041,8 @@ class App:
             self.polish_job = None
 
     def _make_engine(self, typer: Typer):
-        """The engine with our callbacks. The 0.3 engine also reports revisions (on_revise); the
-        0.2 one only appends words and returns the final text from finish()."""
+        """Segments cut at pauses, each recognized as soon as it closes and typed at once
+        (SegmentEngine never revises; on_revise is passed for engines that do)."""
         kwargs = {"on_commit": typer.add, "on_level": self._set_level}
         revising = _takes(DictationEngine, "on_revise")
         if revising:
@@ -1033,12 +1054,8 @@ class App:
         return engine, revising
 
     def _finish_engine(self, engine) -> str:
-        """finish(budget) on the 0.3 engine (late chunks keep their live text), finish() on 0.2."""
-        budget = float(getattr(self.cfg, "stop_budget_s", 0.8))
         if _takes(engine.finish, "budget_s"):
-            return engine.finish(budget_s=budget)
-        if _takes(engine.finish):
-            return engine.finish(budget)
+            return engine.finish(budget_s=float(getattr(self.cfg, "stop_budget_s", 0.8)))
         return engine.finish()
 
     def _polish_wanted(self, final: str) -> bool:
