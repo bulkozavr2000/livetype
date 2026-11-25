@@ -365,8 +365,9 @@ class TextProcessor:
     def _launch(self, model: str, port: int):
         args = [str(LLAMA_DIR / "llama-server.exe"), "-m", str(model_path(model)), "--host", "127.0.0.1",
                 "--port", str(port), "-c", "4096", "-t", str(self.threads), "--no-webui"]
+        # below normal priority: loading the model at the hotkey must not slow down recognition
         return subprocess.Popen(args, cwd=LLAMA_DIR, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                creationflags=subprocess.CREATE_NO_WINDOW)
+                                creationflags=subprocess.CREATE_NO_WINDOW | getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0))
 
     def start(self, model: str) -> bool:
         """Start the server for `model` (or keep the running one) and wait until it answers."""
